@@ -224,8 +224,7 @@ class TestEmbeddingFactory:
         
         error_message = str(exc_info.value)
         assert "Unsupported Embedding provider: 'unknown'" in error_message
-        assert "Available providers: fake" in error_message
-        assert "B7.3-B7.4" in error_message
+        assert "Available providers:" in error_message
     
     def test_create_missing_provider_config(self):
         """Missing provider in settings should raise clear error."""
