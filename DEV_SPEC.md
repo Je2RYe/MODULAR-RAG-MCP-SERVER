@@ -185,6 +185,24 @@
 	- **前置去重 (Early Exit / File Integrity Check)**：
 		- 机制：在解析文件前，计算原始文件的 SHA256 哈希指纹。
 		- 动作：检索 `ingestion_history` 表，若发现相同 Hash 且状态为 `success` 的记录，则认定该文件未发生变更，直接跳过后续所有处理（解析、切分、LLM重写），实现**零成本 (Zero-Cost)** 的增量更新。
+		- **存储方案**（初期实现，可插拔）：
+			- **默认选择：SQLite**，存储于 `data/db/ingestion_history.db`
+			- **表结构**：
+				```sql
+				CREATE TABLE ingestion_history (
+				    file_hash TEXT PRIMARY KEY,
+				    file_path TEXT NOT NULL,
+				    file_size INTEGER,
+				    status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'processing')),
+				    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				    error_msg TEXT,
+				    chunk_count INTEGER
+				);
+				CREATE INDEX idx_status ON ingestion_history(status);
+				CREATE INDEX idx_processed_at ON ingestion_history(processed_at);
+				```
+			- **查询逻辑**：`SELECT status FROM ingestion_history WHERE file_hash = ? AND status = 'success'`
+			- **替换路径**：后续可升级为 Redis（分布式缓存）或 PostgreSQL（企业级中心化存储）
 	- **解析与标准化**：
 		- 当前范围：**仅实现 PDF -> canonical Markdown 子集** 的转换。
 	- 技术选型（Python PDF -> Markdown）：
@@ -1346,6 +1364,7 @@ smart-knowledge-hub/
 │   ├── images/                          # 提取的图片存放
 │   │   └── {collection}/                # 按集合分类
 │   └── db/                              # 数据库文件
+│       ├── ingestion_history.db         # 文件完整性历史记录 (SQLite)
 │       ├── chroma/                      # Chroma 向量库
 │       └── bm25/                        # BM25 索引
 │
@@ -1434,7 +1453,7 @@ smart-knowledge-hub/
 | `LLMClient` | Azure OpenAI | OpenAI / Ollama / DeepSeek |
 | `EmbeddingClient` | OpenAI text-embedding-3 | BGE / Ollama 本地模型 |
 | `Loader` | PDF Loader（MarkItDown） | Markdown/HTML/Code Loader 等 |
-| `FileIntegrity` | SHA256 指纹缓存/判定 | SQLite/本地 cache/远端元数据服务 |
+| `FileIntegrity` | SQLite (`data/db/ingestion_history.db`) | Redis（分布式）/ PostgreSQL（企业级）/ JSON文件（测试） |
 | `Splitter` | RecursiveCharacterTextSplitter | Semantic / FixedLen |
 | `VectorStore` | Chroma | Qdrant / Pinecone / Milvus |
 | `Reranker` | CrossEncoder | LLM Rerank / None (关闭) |
@@ -1993,15 +2012,23 @@ observability:
 - **测试方法**：`pytest -q tests/unit/test_core_types.py`。
 
 ### C2：文件完整性检查（SHA256）
-- **目标**：在Libs中实现 `file_integrity.py`：计算文件 hash，并提供“是否跳过”的判定接口（先用本地 cache 文件/SQLite 任一实现，后续可替换）。
+- **目标**：在Libs中实现 `file_integrity.py`：计算文件 hash，并提供“是否跳过”的判定接口（使用 SQLite 作为默认存储，支持后续替换为 Redis/PostgreSQL）。
 - **修改文件**：
   - `src/libs/loader/file_integrity.py`
   - `tests/unit/test_file_integrity.py`
+  - 数据库文件：`data/db/ingestion_history.db`（自动创建）
 - **实现类/函数**：
-  - `compute_sha256(path) -> str`
-  - `should_skip(file_hash) -> bool`
-  - `mark_success(file_hash)`
-- **验收标准**：同一文件多次 hash 一致；标记 success 后应 skip。
+  - `FileIntegrityChecker` 类（抽象接口）
+  - `SQLiteIntegrityChecker(FileIntegrityChecker)` 类（默认实现）
+    - `compute_sha256(path: str) -> str`
+    - `should_skip(file_hash: str) -> bool`
+    - `mark_success(file_hash: str, file_path: str, ...)`
+    - `mark_failed(file_hash: str, error_msg: str)`
+- **验收标准**：
+  - 同一文件多次计算hash结果一致
+  - 标记 success 后，`should_skip` 返回 `True`
+  - 数据库文件正确创建在 `data/db/ingestion_history.db`
+  - 支持并发写入（SQLite WAL模式）
 - **测试方法**：`pytest -q tests/unit/test_file_integrity.py`。
 
 ### C3：Loader 抽象基类与 PDF Loader 壳子
