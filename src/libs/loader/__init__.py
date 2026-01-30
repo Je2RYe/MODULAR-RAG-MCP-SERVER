@@ -7,4 +7,13 @@ This package contains document loader components:
 - File integrity checker
 """
 
-__all__ = []
+from src.libs.loader.base_loader import BaseLoader
+from src.libs.loader.pdf_loader import PdfLoader
+from src.libs.loader.file_integrity import FileIntegrityChecker, SQLiteIntegrityChecker
+
+__all__ = [
+    "BaseLoader",
+    "PdfLoader",
+    "FileIntegrityChecker",
+    "SQLiteIntegrityChecker",
+]
