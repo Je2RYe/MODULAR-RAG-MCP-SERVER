@@ -1696,7 +1696,7 @@ observability:
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-01-30 | ChromaStore + 20个集成测试 + roundtrip验证 |
 | B7.7 | LLM Reranker 实现 | [x] | 2026-01-30 | LLMReranker + 20个单元测试 + prompt模板支持 |
 | B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-01-30 | CrossEncoderReranker + 26个单元测试 + 工厂集成 |
-| B8 | Vision LLM 抽象接口与工厂集成 | [ ] | - | BaseVisionLLM + VisionLLMFactory/LLMFactory扩展 + 单元测试 |
+| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-01-31 | BaseVisionLLM + ImageInput + LLMFactory扩展 + 35个单元测试 |
 | B9 | Azure Vision LLM 实现 | [ ] | - | AzureVisionLLM + 单元测试 + mock测试 |
 
 #### 阶段 C：Ingestion Pipeline MVP
@@ -1768,13 +1768,13 @@ observability:
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 14 | 88% |
+| 阶段 B | 16 | 15 | 94% |
 | 阶段 C | 15 | 6 | 40% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 4 | 0 | 0% |
-| **总计** | **56** | **23** | **41%** |
+| **总计** | **56** | **24** | **43%** |
 
 
 ---
