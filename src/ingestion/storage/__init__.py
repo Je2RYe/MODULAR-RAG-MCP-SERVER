@@ -7,4 +7,6 @@ This package contains storage components:
 - Image storage
 """
 
-__all__ = []
+from src.ingestion.storage.bm25_indexer import BM25Indexer
+
+__all__ = ["BM25Indexer"]

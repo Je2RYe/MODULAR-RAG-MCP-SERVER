@@ -1713,7 +1713,7 @@ observability:
 | C8 | DenseEncoder | [x] | 2026-02-01 | 批量编码+Azure集成测试 |
 | C9 | SparseEncoder | [x] | 2026-02-01 | 词频统计+语料库统计+26单元测试 |
 | C10 | BatchProcessor | [x] | 2026-02-01 | BatchProcessor + BatchResult + 20个单元测试 |
-| C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | - |  |
+| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-02-01 | BM25索引器+IDF计算+持久化+26单元测试 |
 | C12 | VectorUpserter（幂等upsert） | [ ] | - |  |
 | C13 | ImageStorage | [ ] | - | |
 | C14 | Pipeline 编排（MVP 串起来） | [ ] | - | |
