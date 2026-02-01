@@ -50,6 +50,7 @@ class MockSettings:
     
     def __init__(self):
         self.llm = self.LLMSettings()
+        self.vision_llm = None
 
 
 @pytest.fixture
@@ -468,6 +469,12 @@ class TestFactoryIntegration:
         # Modify settings to have vision_llm config
         class VisionLLMSettings:
             provider = "azure"
+            model = "gpt-4o"
+            deployment_name = "gpt-4o"
+            max_image_size = 2048
+            api_key = None
+            azure_endpoint = None
+            api_version = None
         
         mock_settings.vision_llm = VisionLLMSettings()
         
@@ -483,6 +490,12 @@ class TestFactoryIntegration:
         
         class VisionLLMSettings:
             provider = "azure"
+            model = "gpt-4o"
+            deployment_name = None
+            max_image_size = None
+            api_key = None
+            azure_endpoint = None
+            api_version = None
         
         mock_settings.vision_llm = VisionLLMSettings()
         

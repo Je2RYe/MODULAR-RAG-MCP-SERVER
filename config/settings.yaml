@@ -28,13 +28,14 @@ embedding:
 # Vision LLM Configuration (for Image Captioning)
 # =============================================================================
 vision_llm:
-  enabled: false  # Set to true to enable vision capabilities
-  provider: "openai"  # Options: openai, azure, ollama
+  enabled: true  # Set to true to enable vision capabilities
+  provider: "azure"  # Options: openai, azure, ollama
   model: "gpt-4o"  # Options: gpt-4o, gpt-4-vision-preview (OpenAI), llava (Ollama)
   # Azure-specific settings (if provider is azure):
-  # azure_endpoint: ""
-  # deployment_name: "gpt-4o"
-  # api_version: "2024-02-15-preview"
+  azure_endpoint: ""
+  deployment_name: "gpt-4o"
+  api_version: "2024-02-15-preview"
+  api_key: ""
   # Ollama-specific settings (if provider is ollama):
   # base_url: "http://localhost:11434"
   max_image_size: 2048  # Max dimension (width/height) for image compression

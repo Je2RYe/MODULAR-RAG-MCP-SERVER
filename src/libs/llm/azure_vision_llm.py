@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import requests
 from pathlib import Path
 from typing import Any, Optional
 
@@ -90,26 +91,61 @@ class AzureVisionLLM(BaseVisionLLM):
         self.deployment_name = deployment_name or settings.llm.model
         self.default_temperature = settings.llm.temperature
         self.default_max_tokens = settings.llm.max_tokens
-        self.max_image_size = max_image_size or self.DEFAULT_MAX_IMAGE_SIZE
         
-        # API key: explicit > env var
-        self.api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+        # Check source of vision settings
+        vision_settings = getattr(settings, "vision_llm", None)
+        
+        # Resolve Deployment Name
+        # Priority: arg > vision_settings.deployment > vision_settings.model > settings.llm.model
+        vision_dep = getattr(vision_settings, "deployment_name", None)
+        vision_model = getattr(vision_settings, "model", None)
+        self.deployment_name = deployment_name or vision_dep or vision_model or settings.llm.model
+        
+        # Resolve Max Image Size
+        # Priority: arg > vision_settings.max_image_size > DEFAULT
+        vision_max_size = getattr(vision_settings, "max_image_size", None)
+        self.max_image_size = max_image_size or vision_max_size or self.DEFAULT_MAX_IMAGE_SIZE
+
+            
+        # API Key Resolution Order:
+        # 1. Constructor arg
+        # 2. Vision settings (settings.vision_llm.api_key)
+        # 3. Env var (AZURE_OPENAI_API_KEY)
+        # 4. LLM settings fallback? (Usually not for API keys in settings object, but let's check)
+        
+        self.api_key = api_key 
+        if not self.api_key and vision_settings and vision_settings.api_key:
+             self.api_key = vision_settings.api_key
+        if not self.api_key:
+             self.api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+             
         if not self.api_key:
             raise ValueError(
                 "Azure OpenAI API key not provided. Set AZURE_OPENAI_API_KEY "
                 "environment variable or pass api_key parameter."
             )
-        
-        # Endpoint: explicit > env var
-        self.endpoint = endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
+            
+        # Endpoint Resolution Order
+        self.endpoint = endpoint
+        if not self.endpoint and vision_settings and vision_settings.azure_endpoint:
+             self.endpoint = vision_settings.azure_endpoint
         if not self.endpoint:
-            raise ValueError(
-                "Azure OpenAI endpoint not provided. Set AZURE_OPENAI_ENDPOINT "
-                "environment variable or pass endpoint parameter."
-            )
+             self.endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT") or getattr(settings.llm, "azure_endpoint", None)
+             
+        if not self.endpoint:
+            raise ValueError("Azure OpenAI endpoint not provided.")
+            
+        # API Version Resolution Order
+        self.api_version = api_version
+        if not self.api_version and vision_settings and vision_settings.api_version:
+             self.api_version = vision_settings.api_version
+        if not self.api_version:
+             self.api_version = getattr(settings.llm, "api_version", None) or self.DEFAULT_API_VERSION
         
-        # API version
-        self.api_version = api_version or self.DEFAULT_API_VERSION
+        # Validate initialized client
+        # We don't initialize a client object here because we use request/httpx per call or custom logic
+        # But we ensures keys are present.
+
         
         # Store any additional kwargs for future use
         self._extra_config = kwargs
@@ -340,15 +376,13 @@ class AzureVisionLLM(BaseVisionLLM):
         
         Raises:
             AzureVisionLLMError: If API call fails.
-        
-        Note:
-            This is a mock implementation for testing. In production,
-            this would use the requests library or Azure SDK to make
-            actual HTTP calls to the Azure OpenAI API.
         """
+        # Clean endpoint trail slash
+        endpoint = self.endpoint.rstrip("/")
+        
         # Build API URL
         url = (
-            f"{self.endpoint}/openai/deployments/{deployment}/chat/completions"
+            f"{endpoint}/openai/deployments/{deployment}/chat/completions"
             f"?api-version={self.api_version}"
         )
         
@@ -359,18 +393,21 @@ class AzureVisionLLM(BaseVisionLLM):
             "max_tokens": max_tokens,
         }
         
-        # In production, this would make actual HTTP request:
-        # import requests
-        # headers = {
-        #     "api-key": self.api_key,
-        #     "Content-Type": "application/json"
-        # }
-        # response = requests.post(url, json=payload, headers=headers)
-        # response.raise_for_status()
-        # return response.json()
+        headers = {
+            "api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
         
-        # For testing, raise NotImplementedError to be mocked
-        raise NotImplementedError(
-            "[Azure Vision] _call_api must be mocked in tests. "
-            "In production, this would use requests library to call Azure API."
-        )
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+             error_details = e.response.text if e.response else str(e)
+             raise AzureVisionLLMError(
+                 f"[Azure Vision] HTTP Error: {e} - Response: {error_details}"
+             ) from e
+        except requests.exceptions.RequestException as e:
+             raise AzureVisionLLMError(
+                 f"[Azure Vision] Request failed: {e}"
+             ) from e
