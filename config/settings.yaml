@@ -101,7 +101,12 @@ ingestion:
   splitter: "recursive"  # Options: recursive, semantic, fixed_length
   batch_size: 100
   
-# Chunk Refiner Configuration (C5)
-chunk_refiner:
-  use_llm: false  # Set to true to enable LLM-based refinement (requires LLM config)
-  # When use_llm is false or LLM call fails, falls back to rule-based refinement
+  # Chunk Refiner Configuration (C5)
+  chunk_refiner:
+    use_llm: false  # Set to true to enable LLM-based refinement (requires LLM config)
+    # When use_llm is false or LLM call fails, falls back to rule-based refinement
+  
+  # Metadata Enricher Configuration (C6)
+  metadata_enricher:
+    use_llm: false  # Set to true to enable LLM-based enrichment (requires LLM config)
+    # When use_llm is false or LLM call fails, falls back to rule-based enrichment

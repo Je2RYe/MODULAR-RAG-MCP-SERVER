@@ -59,10 +59,11 @@ class MetadataEnricher(BaseTransform):
         
         # Determine if LLM should be used
         enricher_config = {}
-        if hasattr(settings, 'ingestion'):
-            ingestion_config = getattr(settings, 'ingestion', None)
-            if ingestion_config and hasattr(ingestion_config, 'metadata_enricher'):
-                enricher_config = getattr(ingestion_config, 'metadata_enricher', {})
+        if hasattr(settings, 'ingestion') and settings.ingestion is not None:
+            ingestion_config = settings.ingestion
+            # Check if ingestion has metadata_enricher attribute (dataclass) or dict
+            if hasattr(ingestion_config, 'metadata_enricher') and ingestion_config.metadata_enricher:
+                enricher_config = ingestion_config.metadata_enricher
             elif isinstance(ingestion_config, dict):
                 enricher_config = ingestion_config.get('metadata_enricher', {})
         

@@ -54,37 +54,54 @@ class AzureLLM(BaseLLM):
         
         Args:
             settings: Application settings containing LLM configuration.
-            api_key: Optional API key override (falls back to env var AZURE_OPENAI_API_KEY).
-            endpoint: Optional endpoint override (falls back to env var AZURE_OPENAI_ENDPOINT).
-            deployment_name: Optional deployment name (defaults to settings.llm.model).
+            api_key: Optional API key override (falls back to settings.llm.api_key or env var).
+            endpoint: Optional endpoint override (falls back to settings.llm.azure_endpoint or env var).
+            deployment_name: Optional deployment name (defaults to settings.llm.deployment_name or model).
             api_version: Optional API version override.
             **kwargs: Additional configuration overrides.
         
         Raises:
             ValueError: If required configuration is missing.
         """
-        self.deployment_name = deployment_name or settings.llm.model
+        # Deployment name: explicit > settings.deployment_name > settings.model
+        self.deployment_name = (
+            deployment_name 
+            or getattr(settings.llm, 'deployment_name', None) 
+            or settings.llm.model
+        )
         self.default_temperature = settings.llm.temperature
         self.default_max_tokens = settings.llm.max_tokens
         
-        # API key: explicit > env var
-        self.api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+        # API key: explicit > settings > env var
+        self.api_key = (
+            api_key 
+            or getattr(settings.llm, 'api_key', None) 
+            or os.environ.get("AZURE_OPENAI_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
-                "Azure OpenAI API key not provided. Set AZURE_OPENAI_API_KEY environment "
-                "variable or pass api_key parameter."
+                "Azure OpenAI API key not provided. Set in settings.yaml (llm.api_key), "
+                "AZURE_OPENAI_API_KEY environment variable, or pass api_key parameter."
             )
         
-        # Endpoint: explicit > env var
-        self.endpoint = endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        # Endpoint: explicit > settings > env var
+        self.endpoint = (
+            endpoint 
+            or getattr(settings.llm, 'azure_endpoint', None) 
+            or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        )
         if not self.endpoint:
             raise ValueError(
-                "Azure OpenAI endpoint not provided. Set AZURE_OPENAI_ENDPOINT environment "
-                "variable or pass endpoint parameter."
+                "Azure OpenAI endpoint not provided. Set in settings.yaml (llm.azure_endpoint), "
+                "AZURE_OPENAI_ENDPOINT environment variable, or pass endpoint parameter."
             )
         
-        # API version
-        self.api_version = api_version or self.DEFAULT_API_VERSION
+        # API version: explicit > settings > default
+        self.api_version = (
+            api_version 
+            or getattr(settings.llm, 'api_version', None) 
+            or self.DEFAULT_API_VERSION
+        )
         
         # Store any additional kwargs for future use
         self._extra_config = kwargs

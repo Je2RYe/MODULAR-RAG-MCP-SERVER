@@ -69,6 +69,13 @@ class LLMSettings:
     model: str
     temperature: float
     max_tokens: int
+    # Azure/OpenAI-specific optional fields
+    api_key: Optional[str] = None
+    api_version: Optional[str] = None
+    azure_endpoint: Optional[str] = None
+    deployment_name: Optional[str] = None
+    # Ollama-specific optional fields
+    base_url: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,8 @@ class IngestionSettings:
     chunk_overlap: int
     splitter: str
     batch_size: int
+    chunk_refiner: Optional[Dict[str, Any]] = None  # 动态配置
+    metadata_enricher: Optional[Dict[str, Any]] = None  # 动态配置
 
 
 @dataclass(frozen=True)
@@ -177,6 +186,8 @@ class Settings:
                 chunk_overlap=_require_int(ingestion, "chunk_overlap", "ingestion"),
                 splitter=_require_str(ingestion, "splitter", "ingestion"),
                 batch_size=_require_int(ingestion, "batch_size", "ingestion"),
+                chunk_refiner=ingestion.get("chunk_refiner"),  # 可选配置
+                metadata_enricher=ingestion.get("metadata_enricher"),  # 可选配置
             )
 
         vision_llm_settings = None
@@ -200,6 +211,11 @@ class Settings:
                 model=_require_str(llm, "model", "llm"),
                 temperature=_require_number(llm, "temperature", "llm"),
                 max_tokens=_require_int(llm, "max_tokens", "llm"),
+                api_key=llm.get("api_key"),
+                api_version=llm.get("api_version"),
+                azure_endpoint=llm.get("azure_endpoint"),
+                deployment_name=llm.get("deployment_name"),
+                base_url=llm.get("base_url"),
             ),
             embedding=EmbeddingSettings(
                 provider=_require_str(embedding, "provider", "embedding"),

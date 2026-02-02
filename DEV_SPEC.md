@@ -1742,7 +1742,7 @@ observability:
 | C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-02-01 | BM25索引器+IDF计算+持久化+26单元测试 |
 | C12 | VectorUpserter（幂等upsert） | [x] | 2026-02-01 | 稳定chunk_id生成+幂等upsert+21单元测试 |
 | C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-02-01 | ImageStorage + SQLite索引 + 37个单元测试 + WAL并发支持 |
-| C14 | Pipeline 编排（MVP 串起来） | [ ] | - | |
+| C14 | Pipeline 编排（MVP 串起来） | [x] | 2026-02-02 | 完整流程编排+Azure LLM/Embedding集成测试通过 |
 | C15 | 脚本入口 ingest.py | [ ] | - | |
 
 #### 阶段 D：Retrieval MVP
@@ -1795,15 +1795,12 @@ observability:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 12 | 80% |
+| 阶段 C | 15 | 13 | 87% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 4 | 0 | 0% |
-| **总计** | **56** | **31** | **55%** |
-| 阶段 F | 5 | 0 | 0% |
-| 阶段 G | 4 | 0 | 0% |
-| **总计** | **56** | **30** | **54%** |
+| **总计** | **56** | **32** | **57%** |
 
 
 ---
@@ -2362,8 +2359,21 @@ observability:
 - **修改文件**：
   - `src/ingestion/pipeline.py`
   - `tests/integration/test_ingestion_pipeline.py`
-- **验收标准**：对 fixtures 样例文档跑完整 pipeline，输出向量与 bm25 索引文件。
-- **测试方法**：`pytest -q tests/integration/test_ingestion_pipeline.py`。
+- **测试数据**：
+  - **主测试文档**：`tests/fixtures/sample_documents/complex_technical_doc.pdf`
+    - 8章节技术文档（~21KB）
+    - 包含3张嵌入图片（需测试图片提取和描述）
+    - 包含5个表格（测试表格内容解析）
+    - 多页多段落（测试完整分块流程）
+  - **辅助测试**：`tests/fixtures/sample_documents/simple.pdf`（简单场景回归）
+- **验收标准**：
+  - 对 `complex_technical_doc.pdf` 跑完整 pipeline，成功输出：
+    - 向量索引文件到 ChromaDB
+    - BM25 索引文件到 `data/db/bm25/`
+    - 提取的图片到 `data/images/` (SHA256命名)
+  - Pipeline 日志清晰展示各阶段进度
+  - 失败步骤抛出明确异常信息
+- **测试方法**：`pytest -v tests/integration/test_ingestion_pipeline.py`。
 
 ### C15：脚本入口 ingest.py（离线可用）
 - **目标**：实现 `scripts/ingest.py`，支持 `--collection`、`--path`、`--force`，并调用 pipeline。
