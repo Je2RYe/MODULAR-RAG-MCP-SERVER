@@ -208,3 +208,48 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} does not implement clear() method. "
             "This operation is optional and primarily for testing."
         )
+    
+    def get_by_ids(
+        self,
+        ids: List[str],
+        trace: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve records by their IDs.
+        
+        This method is used by SparseRetriever to fetch text and metadata
+        for chunks that were matched by BM25 search (which only returns IDs and scores).
+        
+        Args:
+            ids: List of record IDs to retrieve.
+            trace: Optional TraceContext for observability (reserved for Stage F).
+            **kwargs: Provider-specific parameters.
+        
+        Returns:
+            List of records in the same order as input ids.
+            Each record is a dict with:
+                - 'id': Record identifier
+                - 'text': The stored text content
+                - 'metadata': Associated metadata
+            If an ID is not found, an empty dict is returned for that position.
+        
+        Raises:
+            ValueError: If ids list is empty.
+            RuntimeError: If the retrieval operation fails.
+            NotImplementedError: If the provider doesn't support this operation.
+        
+        Example:
+            >>> ids = ["chunk_001", "chunk_002", "chunk_003"]
+            >>> records = vector_store.get_by_ids(ids)
+            >>> for record in records:
+            ...     print(f"ID: {record['id']}, Text: {record['text'][:50]}...")
+        
+        Notes:
+            This operation is essential for hybrid search where BM25 returns
+            chunk IDs that need to be enriched with text and metadata from
+            the vector store.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement get_by_ids() method. "
+            "This operation is required for SparseRetriever support."
+        )

@@ -403,3 +403,75 @@ class ChromaStore(BaseVectorStore):
             'name': self.collection_name,
             'metadata': self.collection.metadata
         }
+    
+    def get_by_ids(
+        self,
+        ids: List[str],
+        trace: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve records by their IDs from ChromaDB.
+        
+        This method is used by SparseRetriever to fetch text and metadata
+        for chunks that were matched by BM25 search.
+        
+        Args:
+            ids: List of record IDs to retrieve.
+            trace: Optional TraceContext for observability.
+            **kwargs: Provider-specific parameters (unused for Chroma).
+        
+        Returns:
+            List of records in the same order as input ids.
+            Each record contains:
+                - 'id': Record identifier
+                - 'text': The stored text content
+                - 'metadata': Associated metadata
+            If an ID is not found, an empty dict is returned for that position.
+        
+        Raises:
+            ValueError: If ids list is empty.
+            RuntimeError: If the retrieval operation fails.
+        """
+        if not ids:
+            raise ValueError("IDs list cannot be empty")
+        
+        # Ensure all IDs are strings
+        str_ids = [str(id_) for id_ in ids]
+        
+        try:
+            # ChromaDB's get method retrieves records by IDs
+            results = self.collection.get(
+                ids=str_ids,
+                include=["metadatas", "documents"]
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to get records by IDs from ChromaDB: {e}"
+            ) from e
+        
+        # Build a mapping from ID to result for O(1) lookup
+        id_to_result: Dict[str, Dict[str, Any]] = {}
+        
+        if results and results.get('ids'):
+            result_ids = results['ids']
+            documents = results.get('documents', [None] * len(result_ids))
+            metadatas = results.get('metadatas', [{}] * len(result_ids))
+            
+            for i, record_id in enumerate(result_ids):
+                id_to_result[record_id] = {
+                    'id': record_id,
+                    'text': documents[i] if documents and documents[i] else '',
+                    'metadata': metadatas[i] if metadatas and metadatas[i] else {}
+                }
+        
+        # Return results in the same order as input ids
+        output = []
+        for id_ in str_ids:
+            if id_ in id_to_result:
+                output.append(id_to_result[id_])
+            else:
+                # ID not found, return empty dict
+                output.append({})
+        
+        logger.debug(f"Retrieved {len([r for r in output if r])} of {len(ids)} records by IDs")
+        return output

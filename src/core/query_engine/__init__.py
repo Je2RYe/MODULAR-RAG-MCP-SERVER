@@ -21,6 +21,10 @@ from src.core.query_engine.dense_retriever import (
     DenseRetriever,
     create_dense_retriever,
 )
+from src.core.query_engine.sparse_retriever import (
+    SparseRetriever,
+    create_sparse_retriever,
+)
 
 __all__ = [
     "QueryProcessor",
@@ -31,4 +35,6 @@ __all__ = [
     "ENGLISH_STOPWORDS",
     "DenseRetriever",
     "create_dense_retriever",
+    "SparseRetriever",
+    "create_sparse_retriever",
 ]
