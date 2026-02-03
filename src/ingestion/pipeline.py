@@ -340,17 +340,20 @@ class IngestionPipeline:
             self.bm25_indexer.build(sparse_stats, collection=self.collection, trace=trace)
             logger.info(f"      Index built for {len(sparse_stats)} documents")
             
-            # 6c: Store images in image storage index
+            # 6c: Register images in image storage index
+            # Note: Images are already saved by PdfLoader, we just need to index them
             logger.info("  6c. Image Storage Index...")
             images = document.metadata.get("images", [])
             for img in images:
-                self.image_storage.save_image(
-                    image_id=img["id"],
-                    image_data=Path(img["path"]).read_bytes() if Path(img["path"]).exists() else b"",
-                    collection=self.collection,
-                    doc_hash=file_hash,
-                    page_num=img.get("page", 0)
-                )
+                img_path = Path(img["path"])
+                if img_path.exists():
+                    self.image_storage.register_image(
+                        image_id=img["id"],
+                        file_path=img_path,
+                        collection=self.collection,
+                        doc_hash=file_hash,
+                        page_num=img.get("page", 0)
+                    )
             logger.info(f"      Indexed {len(images)} images")
             
             stages["storage"] = {

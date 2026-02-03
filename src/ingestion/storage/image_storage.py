@@ -227,6 +227,77 @@ class ImageStorage:
         
         return stored_path
     
+    def register_image(
+        self,
+        image_id: str,
+        file_path: Union[Path, str],
+        collection: Optional[str] = None,
+        doc_hash: Optional[str] = None,
+        page_num: Optional[int] = None
+    ) -> str:
+        """Register an existing image file in the database index.
+        
+        Unlike save_image(), this method does NOT copy or move the file.
+        It only creates a database entry pointing to the existing file.
+        Use this when the image has already been saved by another component
+        (e.g., PdfLoader) and you just need to index it.
+        
+        Args:
+            image_id: Unique identifier for the image.
+            file_path: Path to the existing image file.
+            collection: Optional collection/namespace for organization.
+            doc_hash: Optional document hash for traceability.
+            page_num: Optional page number if from paginated document.
+        
+        Returns:
+            Absolute path to the registered image.
+            
+        Raises:
+            ValueError: If image_id is empty or invalid.
+            FileNotFoundError: If the image file does not exist.
+            RuntimeError: If database operation fails.
+            
+        Example:
+            >>> # Register an image that was saved by PdfLoader
+            >>> path = storage.register_image(
+            ...     image_id="doc123_p1_img0",
+            ...     file_path="data/images/tech_docs/abc123/doc123_p1_img0.png",
+            ...     collection="tech_docs",
+            ...     doc_hash="abc123",
+            ...     page_num=1
+            ... )
+        """
+        if not image_id or not image_id.strip():
+            raise ValueError("image_id cannot be empty")
+        
+        # Verify file exists
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Image file not found: {file_path}")
+        
+        # Store absolute path for reliable retrieval
+        stored_path = str(path.resolve())
+        
+        # Register in database
+        now = datetime.now(timezone.utc).isoformat()
+        
+        conn = sqlite3.connect(self.db_path)
+        try:
+            # Use INSERT OR REPLACE for idempotent operation
+            conn.execute("""
+                INSERT OR REPLACE INTO image_index 
+                (image_id, file_path, collection, doc_hash, page_num, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (image_id, stored_path, collection, doc_hash, page_num, now))
+            
+            conn.commit()
+        except sqlite3.Error as e:
+            raise RuntimeError(f"Failed to register image {image_id}: {e}")
+        finally:
+            conn.close()
+        
+        return stored_path
+    
     def get_image_path(self, image_id: str) -> Optional[str]:
         """Get filesystem path for an image by ID.
         
