@@ -1,7 +1,8 @@
 """Metadata enrichment transform: rule-based + optional LLM enhancement."""
 
 import re
-from typing import List, Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 
 from src.core.settings import Settings
@@ -13,6 +14,9 @@ from src.libs.llm.base_llm import BaseLLM, Message
 from src.observability.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Default max parallel workers for LLM calls
+DEFAULT_MAX_WORKERS = 5
 
 
 class MetadataEnricher(BaseTransform):
@@ -98,6 +102,139 @@ class MetadataEnricher(BaseTransform):
         if not chunks:
             return []
         
+        # Process chunks in parallel if LLM is enabled
+        if self.use_llm and self.llm:
+            return self._transform_parallel(chunks, trace)
+        else:
+            return self._transform_sequential(chunks, trace)
+    
+    def _enrich_single_chunk(
+        self, 
+        chunk: Chunk, 
+        trace: Optional[TraceContext] = None
+    ) -> Tuple[Chunk, str, Optional[str]]:
+        """Enrich a single chunk. Thread-safe.
+        
+        Args:
+            chunk: Chunk to enrich
+            trace: Optional trace context
+            
+        Returns:
+            Tuple of (enriched_chunk, enriched_by, error_message)
+        """
+        try:
+            # Step 1: Rule-based enrichment
+            rule_metadata = self._rule_based_enrich(chunk.text)
+            
+            # Step 2: LLM enhancement
+            if self.use_llm and self.llm:
+                llm_metadata = self._llm_enrich(chunk.text, trace)
+                
+                if llm_metadata:
+                    enriched_metadata = llm_metadata
+                    enriched_by = "llm"
+                else:
+                    enriched_metadata = rule_metadata
+                    enriched_by = "rule"
+                    enriched_metadata['enrich_fallback_reason'] = "llm_failed"
+            else:
+                enriched_metadata = rule_metadata
+                enriched_by = "rule"
+            
+            final_metadata = {
+                **(chunk.metadata or {}),
+                **enriched_metadata,
+                'enriched_by': enriched_by
+            }
+            
+            enriched_chunk = Chunk(
+                id=chunk.id,
+                text=chunk.text,
+                metadata=final_metadata,
+                source_ref=chunk.source_ref
+            )
+            return (enriched_chunk, enriched_by, None)
+            
+        except Exception as e:
+            logger.error(f"Failed to enrich chunk {chunk.id}: {e}")
+            text_preview = ""
+            if chunk.text:
+                text_preview = chunk.text[:100] + '...' if len(chunk.text) > 100 else chunk.text
+            minimal_metadata = {
+                **(chunk.metadata or {}),
+                'title': 'Untitled',
+                'summary': text_preview,
+                'tags': [],
+                'enriched_by': 'error',
+                'enrich_error': str(e)
+            }
+            enriched_chunk = Chunk(
+                id=chunk.id,
+                text=chunk.text or "",
+                metadata=minimal_metadata,
+                source_ref=chunk.source_ref
+            )
+            return (enriched_chunk, "error", str(e))
+    
+    def _transform_parallel(
+        self, 
+        chunks: List[Chunk], 
+        trace: Optional[TraceContext] = None
+    ) -> List[Chunk]:
+        """Process chunks in parallel using ThreadPoolExecutor."""
+        max_workers = min(DEFAULT_MAX_WORKERS, len(chunks))
+        enriched_chunks = [None] * len(chunks)
+        llm_enhanced_count = 0
+        fallback_count = 0
+        
+        logger.debug(f"Processing {len(chunks)} chunks in parallel (max_workers={max_workers})")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {
+                executor.submit(self._enrich_single_chunk, chunk, trace): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    enriched_chunk, enriched_by, error = future.result()
+                    enriched_chunks[idx] = enriched_chunk
+                    
+                    if enriched_by == "llm":
+                        llm_enhanced_count += 1
+                    elif enriched_by == "rule" and error is None:
+                        fallback_count += 1
+                except Exception as e:
+                    logger.error(f"Unexpected error in parallel enrichment: {e}")
+                    enriched_chunks[idx] = chunks[idx]
+        
+        success_count = sum(1 for c in enriched_chunks if c is not None)
+        
+        if trace:
+            trace.record_stage("metadata_enricher", {
+                "total_chunks": len(chunks),
+                "success_count": success_count,
+                "llm_enhanced_count": llm_enhanced_count,
+                "fallback_count": fallback_count,
+                "use_llm": self.use_llm,
+                "parallel": True,
+                "max_workers": max_workers
+            })
+        
+        logger.info(
+            f"Enriched {success_count}/{len(chunks)} chunks "
+            f"(LLM: {llm_enhanced_count}, Fallback: {fallback_count})"
+        )
+        
+        return enriched_chunks
+    
+    def _transform_sequential(
+        self, 
+        chunks: List[Chunk], 
+        trace: Optional[TraceContext] = None
+    ) -> List[Chunk]:
+        """Process chunks sequentially (fallback when LLM disabled)."""
         enriched_chunks = []
         success_count = 0
         llm_enhanced_count = 0
@@ -175,7 +312,8 @@ class MetadataEnricher(BaseTransform):
                 "success_count": success_count,
                 "llm_enhanced_count": llm_enhanced_count,
                 "fallback_count": fallback_count,
-                "use_llm": self.use_llm
+                "use_llm": self.use_llm,
+                "parallel": False
             })
         
         logger.info(

@@ -4,9 +4,12 @@ Performance Optimizations:
 1. Only processes images that are actually referenced in chunk text (via [IMAGE: id] placeholder)
 2. Uses caption cache to avoid redundant Vision API calls for the same image
 3. Skips chunks without image references entirely
+4. Parallel processing of unique images with thread-safe caching
 """
 
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Dict
 
@@ -22,6 +25,9 @@ logger = get_logger(__name__)
 
 # Regex to find image placeholders: [IMAGE: some_id]
 IMAGE_PLACEHOLDER_PATTERN = re.compile(r'\[IMAGE:\s*([^\]]+)\]')
+
+# Default max parallel workers for Vision API calls
+DEFAULT_MAX_WORKERS = 3  # Lower than text LLM due to higher cost/latency
 
 
 class ImageCaptioner(BaseTransform):
@@ -44,8 +50,9 @@ class ImageCaptioner(BaseTransform):
     ):
         self.settings = settings
         self.llm = None
-        # Caption cache: image_id -> caption string
+        # Caption cache: image_id -> caption string (thread-safe with lock)
         self._caption_cache: Dict[str, str] = {}
+        self._cache_lock = threading.Lock()
         
         # Check if vision LLM is enabled in settings
         if self.settings.vision_llm and self.settings.vision_llm.enabled:
@@ -86,7 +93,7 @@ class ImageCaptioner(BaseTransform):
         img_path: str, 
         trace: Optional[TraceContext] = None
     ) -> Optional[str]:
-        """Get caption for an image, using cache if available.
+        """Get caption for an image, using cache if available. Thread-safe.
         
         Args:
             img_id: Image identifier
@@ -96,10 +103,11 @@ class ImageCaptioner(BaseTransform):
         Returns:
             Caption string or None if failed
         """
-        # Check cache first
-        if img_id in self._caption_cache:
-            logger.debug(f"Caption cache hit for image {img_id}")
-            return self._caption_cache[img_id]
+        # Check cache first (thread-safe read)
+        with self._cache_lock:
+            if img_id in self._caption_cache:
+                logger.debug(f"Caption cache hit for image {img_id}")
+                return self._caption_cache[img_id]
         
         # Validate path
         if not img_path or not Path(img_path).exists():
@@ -115,8 +123,9 @@ class ImageCaptioner(BaseTransform):
             )
             caption = response.content
             
-            # Cache the result
-            self._caption_cache[img_id] = caption
+            # Cache the result (thread-safe write)
+            with self._cache_lock:
+                self._caption_cache[img_id] = caption
             logger.debug(f"Generated and cached caption for image {img_id}")
             
             return caption
@@ -134,12 +143,12 @@ class ImageCaptioner(BaseTransform):
         
         Only processes images that are actually referenced in chunk text
         via [IMAGE: id] placeholders. Uses caching to avoid redundant API calls.
+        Parallel processing for unique images.
         """
         if not self.llm:
             return chunks
         
         # Build image lookup from all chunks' metadata
-        # image_id -> {path, ...}
         image_lookup: Dict[str, dict] = {}
         for chunk in chunks:
             if chunk.metadata and "images" in chunk.metadata:
@@ -151,17 +160,31 @@ class ImageCaptioner(BaseTransform):
         logger.info(f"Found {len(image_lookup)} unique images in document")
         
         # Clear cache for new document processing
-        self._caption_cache.clear()
-            
+        with self._cache_lock:
+            self._caption_cache.clear()
+        
+        # First pass: collect all unique image IDs that need captioning
+        images_to_caption: Dict[str, str] = {}  # img_id -> img_path
+        for chunk in chunks:
+            referenced_ids = self._find_referenced_image_ids(chunk.text)
+            for img_id in referenced_ids:
+                if img_id not in images_to_caption:
+                    img_meta = image_lookup.get(img_id)
+                    if img_meta and img_meta.get("path"):
+                        images_to_caption[img_id] = img_meta.get("path")
+        
+        # Parallel caption generation for all unique images
+        if images_to_caption:
+            self._generate_captions_parallel(images_to_caption, trace)
+        
+        # Second pass: apply captions to chunks
         processed_chunks = []
         total_captions_added = 0
         
         for chunk in chunks:
-            # Find which images are actually referenced in this chunk's text
             referenced_ids = self._find_referenced_image_ids(chunk.text)
             
             if not referenced_ids:
-                # No image references in this chunk, skip processing
                 processed_chunks.append(chunk)
                 continue
             
@@ -169,21 +192,15 @@ class ImageCaptioner(BaseTransform):
             captions = []
             
             for img_id in referenced_ids:
-                # Look up image metadata
-                img_meta = image_lookup.get(img_id)
-                if not img_meta:
-                    logger.warning(f"Image {img_id} referenced but not found in metadata")
-                    continue
+                img_id_stripped = img_id.strip()
                 
-                img_path = img_meta.get("path")
-                
-                # Get caption (from cache or API)
-                caption = self._get_caption(img_id, img_path, trace)
+                # Get caption from cache (already populated by parallel processing)
+                with self._cache_lock:
+                    caption = self._caption_cache.get(img_id_stripped)
                 
                 if caption:
-                    captions.append({"id": img_id, "caption": caption})
+                    captions.append({"id": img_id_stripped, "caption": caption})
                     
-                    # Replace placeholder with caption
                     placeholder = f"[IMAGE: {img_id}]"
                     replacement = f"[IMAGE: {img_id}]\n(Description: {caption})"
                     new_text = new_text.replace(placeholder, replacement)
@@ -191,7 +208,6 @@ class ImageCaptioner(BaseTransform):
                     
             chunk.text = new_text
             
-            # Store captions in metadata (only for images actually in this chunk)
             if captions:
                 if "image_captions" not in chunk.metadata:
                     chunk.metadata["image_captions"] = []
@@ -199,6 +215,40 @@ class ImageCaptioner(BaseTransform):
             
             processed_chunks.append(chunk)
         
-        logger.info(f"Added {total_captions_added} captions, API calls: {len(self._caption_cache)}")
+        with self._cache_lock:
+            api_calls = len(self._caption_cache)
+        logger.info(f"Added {total_captions_added} captions, API calls: {api_calls}")
             
         return processed_chunks
+    
+    def _generate_captions_parallel(
+        self, 
+        images_to_caption: Dict[str, str],
+        trace: Optional[TraceContext] = None
+    ) -> None:
+        """Generate captions for multiple images in parallel.
+        
+        Args:
+            images_to_caption: Dict of img_id -> img_path
+            trace: Optional trace context
+        """
+        if not images_to_caption:
+            return
+        
+        max_workers = min(DEFAULT_MAX_WORKERS, len(images_to_caption))
+        logger.debug(f"Generating captions for {len(images_to_caption)} images (max_workers={max_workers})")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self._get_caption, img_id, img_path, trace): img_id
+                for img_id, img_path in images_to_caption.items()
+            }
+            
+            for future in as_completed(futures):
+                img_id = futures[future]
+                try:
+                    caption = future.result()
+                    if caption:
+                        logger.debug(f"Caption generated for {img_id}")
+                except Exception as e:
+                    logger.error(f"Failed to generate caption for {img_id}: {e}")

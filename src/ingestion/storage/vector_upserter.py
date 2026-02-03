@@ -54,17 +54,21 @@ class VectorUpserter:
         >>> # Chunks written with stable IDs like: "a1b2c3d4_0000_e5f6g7h8"
     """
     
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, collection_name: Optional[str] = None):
         """Initialize VectorUpserter with configured vector store.
         
         Args:
             settings: Application settings containing vector_store configuration.
+            collection_name: Optional collection name to override settings default.
         
         Raises:
             ValueError: If settings are invalid or vector store cannot be created.
         """
         self.settings = settings
-        self.vector_store = VectorStoreFactory.create(settings)
+        kwargs = {}
+        if collection_name:
+            kwargs['collection_name'] = collection_name
+        self.vector_store = VectorStoreFactory.create(settings, **kwargs)
     
     def upsert(
         self,
