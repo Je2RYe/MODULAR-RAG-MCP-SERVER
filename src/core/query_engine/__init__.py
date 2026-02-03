@@ -25,6 +25,10 @@ from src.core.query_engine.sparse_retriever import (
     SparseRetriever,
     create_sparse_retriever,
 )
+from src.core.query_engine.fusion import (
+    RRFFusion,
+    rrf_score,
+)
 
 __all__ = [
     "QueryProcessor",
@@ -37,4 +41,6 @@ __all__ = [
     "create_dense_retriever",
     "SparseRetriever",
     "create_sparse_retriever",
+    "RRFFusion",
+    "rrf_score",
 ]
