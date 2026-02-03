@@ -9,4 +9,20 @@ This package contains the hybrid search engine components:
 - Reranking
 """
 
-__all__ = []
+from src.core.query_engine.query_processor import (
+    QueryProcessor,
+    QueryProcessorConfig,
+    create_query_processor,
+    DEFAULT_STOPWORDS,
+    CHINESE_STOPWORDS,
+    ENGLISH_STOPWORDS,
+)
+
+__all__ = [
+    "QueryProcessor",
+    "QueryProcessorConfig",
+    "create_query_processor",
+    "DEFAULT_STOPWORDS",
+    "CHINESE_STOPWORDS",
+    "ENGLISH_STOPWORDS",
+]

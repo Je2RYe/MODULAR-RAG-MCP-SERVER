@@ -225,3 +225,39 @@ class ChunkRecord:
 Metadata = Dict[str, Any]
 Vector = List[float]
 SparseVector = Dict[str, float]
+
+
+@dataclass
+class ProcessedQuery:
+    """Represents a processed query ready for retrieval.
+    
+    This is the output of QueryProcessor, containing extracted keywords
+    and parsed filters for downstream Dense/Sparse retrievers.
+    
+    Attributes:
+        original_query: The raw user query string
+        keywords: List of extracted keywords after stopword removal
+        filters: Dictionary of filter conditions (e.g., {"collection": "api-docs"})
+        expanded_terms: Optional list of synonyms/expanded terms (for future use)
+    
+    Example:
+        >>> pq = ProcessedQuery(
+        ...     original_query="如何配置 Azure OpenAI？",
+        ...     keywords=["配置", "Azure", "OpenAI"],
+        ...     filters={"collection": "docs"}
+        ... )
+    """
+    
+    original_query: str
+    keywords: List[str] = field(default_factory=list)
+    filters: Dict[str, Any] = field(default_factory=dict)
+    expanded_terms: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProcessedQuery":
+        """Create ProcessedQuery from dictionary."""
+        return cls(**data)
