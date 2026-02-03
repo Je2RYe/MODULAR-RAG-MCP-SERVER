@@ -23,4 +23,8 @@ def get_logger(name: str = "modular-rag", log_level: Optional[str] = None) -> lo
         level = logging.INFO
 
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    
+    # Suppress httpx logs (contains sensitive endpoint URLs)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
     return logging.getLogger(name)

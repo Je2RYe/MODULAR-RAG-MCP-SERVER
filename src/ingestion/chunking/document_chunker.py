@@ -126,7 +126,7 @@ class DocumentChunker:
         chunks: List[Chunk] = []
         for index, text in enumerate(text_fragments):
             chunk_id = self._generate_chunk_id(document.id, index, text)
-            chunk_metadata = self._inherit_metadata(document, index)
+            chunk_metadata = self._inherit_metadata(document, index, text)
             
             chunk = Chunk(
                 id=chunk_id,
@@ -168,17 +168,23 @@ class DocumentChunker:
         # Format: {doc_id}_{index:04d}_{hash_8chars}
         return f"{doc_id}_{index:04d}_{content_hash}"
     
-    def _inherit_metadata(self, document: Document, chunk_index: int) -> dict:
+    def _inherit_metadata(self, document: Document, chunk_index: int, chunk_text: str = "") -> dict:
         """Inherit metadata from document and add chunk-specific fields.
         
         This creates a new metadata dict containing:
         - All fields from document.metadata (copied, not referenced)
         - chunk_index: Sequential position (0-based)
         - source_ref: Reference to parent document ID
+        - image_refs: List of image IDs referenced in this chunk (extracted from placeholders)
+        
+        Note: The document-level 'images' field is intentionally excluded from chunk
+        metadata as it would be redundant. Instead, chunk-specific 'image_refs' is
+        populated based on [IMAGE: xxx] placeholders found in the chunk text.
         
         Args:
             document: Source document whose metadata to inherit
             chunk_index: Sequential position of this chunk
+            chunk_text: The text content of this chunk (used to extract image_refs)
         
         Returns:
             Metadata dict with inherited and chunk-specific fields
@@ -189,19 +195,45 @@ class DocumentChunker:
             ...     text="Content",
             ...     metadata={"source_path": "file.pdf", "title": "Report"}
             ... )
-            >>> metadata = chunker._inherit_metadata(doc, 2)
+            >>> metadata = chunker._inherit_metadata(doc, 2, "See [IMAGE: img_001]")
             >>> metadata["source_path"]
             'file.pdf'
             >>> metadata["chunk_index"]
             2
             >>> metadata["source_ref"]
             'doc_123'
+            >>> metadata["image_refs"]
+            ['img_001']
         """
+        import re
+        
         # Copy all document metadata (shallow copy is sufficient for primitives)
         chunk_metadata = document.metadata.copy()
+        
+        # Remove document-level 'images' field as it's redundant for chunks
+        # Chunks use 'image_refs' instead, which is specific to each chunk
+        chunk_metadata.pop("images", None)
         
         # Add chunk-specific fields
         chunk_metadata["chunk_index"] = chunk_index
         chunk_metadata["source_ref"] = document.id
+        
+        # Extract image_refs from chunk text by finding [IMAGE: xxx] placeholders
+        image_refs = []
+        if chunk_text:
+            # Pattern matches [IMAGE: image_id] placeholders
+            pattern = r'\[IMAGE:\s*([^\]]+)\]'
+            matches = re.findall(pattern, chunk_text)
+            image_refs = [m.strip() for m in matches]
+        
+        chunk_metadata["image_refs"] = image_refs
+        
+        # Try to determine page_num from the first referenced image
+        if image_refs and "images" in document.metadata:
+            images_list = document.metadata.get("images", [])
+            for img_info in images_list:
+                if img_info.get("id") in image_refs:
+                    chunk_metadata["page_num"] = img_info.get("page")
+                    break
         
         return chunk_metadata
