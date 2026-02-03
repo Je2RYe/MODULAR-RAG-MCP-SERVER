@@ -1758,7 +1758,7 @@ observability:
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
 | D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-02-03 | ProcessedQuery类型+关键词提取+停用词过滤+filter语法+38单元测试 |
-| D2 | DenseRetriever（调用 VectorStore.query） | [ ] | - | |
+| D2 | DenseRetriever（调用 VectorStore.query） | [x] | 2026-02-03 | RetrievalResult类型+依赖注入+ChromaStore.query修复+30单元测试 |
 | D3 | SparseRetriever（BM25 查询） | [ ] | - | |
 | D4 | RRF Fusion | [ ] | - | |
 | D5 | HybridSearch 编排 | [ ] | - | |
@@ -1803,11 +1803,11 @@ observability:
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
 | 阶段 C | 15 | 15 | 100% |
-| 阶段 D | 6 | 1 | 17% |
+| 阶段 D | 6 | 2 | 33% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 4 | 0 | 0% |
-| **总计** | **55** | **35** | **64%** |
+| **总计** | **55** | **36** | **65%** |
 
 
 ---

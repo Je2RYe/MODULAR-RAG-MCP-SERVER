@@ -261,3 +261,51 @@ class ProcessedQuery:
     def from_dict(cls, data: Dict[str, Any]) -> "ProcessedQuery":
         """Create ProcessedQuery from dictionary."""
         return cls(**data)
+
+
+@dataclass
+class RetrievalResult:
+    """Represents a single retrieval result from Dense/Sparse retrievers.
+    
+    This is the output of DenseRetriever, SparseRetriever, and HybridSearch,
+    providing a unified contract for retrieval results across all search methods.
+    
+    Attributes:
+        chunk_id: Unique identifier for the retrieved chunk
+        score: Relevance score (higher = more relevant, normalized to [0, 1])
+        text: The actual text content of the retrieved chunk
+        metadata: Associated metadata (source_path, chunk_index, title, etc.)
+    
+    Example:
+        >>> result = RetrievalResult(
+        ...     chunk_id="doc1_chunk_003",
+        ...     score=0.85,
+        ...     text="Azure OpenAI 配置步骤如下...",
+        ...     metadata={
+        ...         "source_path": "docs/azure-guide.pdf",
+        ...         "chunk_index": 3,
+        ...         "title": "Azure Configuration"
+        ...     }
+        ... )
+    """
+    
+    chunk_id: str
+    score: float
+    text: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Validate fields after initialization."""
+        if not self.chunk_id:
+            raise ValueError("chunk_id cannot be empty")
+        if not isinstance(self.score, (int, float)):
+            raise ValueError(f"score must be numeric, got {type(self.score).__name__}")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RetrievalResult":
+        """Create RetrievalResult from dictionary."""
+        return cls(**data)

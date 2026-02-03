@@ -17,6 +17,10 @@ from src.core.query_engine.query_processor import (
     CHINESE_STOPWORDS,
     ENGLISH_STOPWORDS,
 )
+from src.core.query_engine.dense_retriever import (
+    DenseRetriever,
+    create_dense_retriever,
+)
 
 __all__ = [
     "QueryProcessor",
@@ -25,4 +29,6 @@ __all__ = [
     "DEFAULT_STOPWORDS",
     "CHINESE_STOPWORDS",
     "ENGLISH_STOPWORDS",
+    "DenseRetriever",
+    "create_dense_retriever",
 ]

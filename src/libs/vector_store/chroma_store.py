@@ -254,6 +254,7 @@ class ChromaStore(BaseVectorStore):
             ids = results['ids'][0]
             distances = results['distances'][0] if 'distances' in results else [0.0] * len(ids)
             metadatas = results['metadatas'][0] if 'metadatas' in results else [{}] * len(ids)
+            documents = results['documents'][0] if 'documents' in results else [''] * len(ids)
             
             for i, record_id in enumerate(ids):
                 # Convert distance to similarity score
@@ -265,6 +266,7 @@ class ChromaStore(BaseVectorStore):
                 output.append({
                     'id': record_id,
                     'score': max(0.0, score),  # Clamp to [0, 1]
+                    'text': documents[i] if documents[i] else '',  # Include text from documents
                     'metadata': metadatas[i] if metadatas[i] else {}
                 })
         
