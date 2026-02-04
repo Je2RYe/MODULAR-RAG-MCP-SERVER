@@ -317,6 +317,8 @@ class TestResponseBuilder:
         sample_retrieval_results: List[RetrievalResult],
     ) -> None:
         """Test MCPToolResponse.to_mcp_content() for MCP protocol."""
+        from mcp import types
+        
         response = response_builder.build(
             results=sample_retrieval_results,
             query="Azure",
@@ -325,8 +327,10 @@ class TestResponseBuilder:
         content_blocks = response.to_mcp_content()
         
         assert len(content_blocks) >= 1
-        assert content_blocks[0]["type"] == "text"
-        assert "检索结果" in content_blocks[0]["text"]
+        # Now returns TextContent objects instead of dicts
+        assert isinstance(content_blocks[0], types.TextContent)
+        assert content_blocks[0].type == "text"
+        assert "检索结果" in content_blocks[0].text
     
     def test_max_results_in_content(self) -> None:
         """Test that max_results_in_content is respected."""

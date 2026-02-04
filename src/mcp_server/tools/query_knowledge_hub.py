@@ -390,13 +390,16 @@ async def query_knowledge_hub_handler(
     This function is registered with the ProtocolHandler and called
     when the MCP client invokes the query_knowledge_hub tool.
     
+    Supports multimodal responses - if search results contain images,
+    the response will include ImageContent blocks alongside TextContent.
+    
     Args:
         query: Search query string.
         top_k: Maximum number of results.
         collection: Optional collection name.
         
     Returns:
-        MCP CallToolResult with content blocks.
+        MCP CallToolResult with content blocks (text and optionally images).
     """
     tool = get_tool_instance()
     
@@ -407,13 +410,8 @@ async def query_knowledge_hub_handler(
             collection=collection,
         )
         
-        # Convert to MCP content blocks
-        content_blocks = [
-            types.TextContent(
-                type="text",
-                text=response.content,
-            )
-        ]
+        # Use to_mcp_content() which handles multimodal (text + images)
+        content_blocks = response.to_mcp_content()
         
         return types.CallToolResult(
             content=content_blocks,
