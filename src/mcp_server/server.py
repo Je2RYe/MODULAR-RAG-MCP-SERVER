@@ -1,117 +1,67 @@
-"""MCP Server entry point for stdio transport.
+"""MCP Server entry point using official MCP SDK.
 
-This module implements a minimal JSON-RPC 2.0 loop that supports
-the MCP `initialize` request. It ensures stdout only contains
-protocol messages while all logs go to stderr.
+This module implements the MCP server using the official Python MCP SDK
+with stdio transport. It ensures stdout only contains protocol messages
+while all logs go to stderr.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
 import sys
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
 
+from src.mcp_server.protocol_handler import create_mcp_server
 from src.observability.logger import get_logger
 
+if TYPE_CHECKING:
+    pass
 
-DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+
 SERVER_NAME = "modular-rag-mcp-server"
 SERVER_VERSION = "0.1.0"
 
 
-def _build_initialize_result(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Build MCP initialize result payload.
-
-    Args:
-        params: Initialize request parameters.
-
-    Returns:
-        Result payload for the initialize response.
-    """
-
-    params = params or {}
-    protocol_version = params.get("protocolVersion") or DEFAULT_PROTOCOL_VERSION
-    return {
-        "protocolVersion": protocol_version,
-        "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-        "capabilities": {"tools": {}},
-    }
-
-
-def _write_response(payload: Dict[str, Any]) -> None:
-    """Write a JSON-RPC response to stdout.
-
-    Args:
-        payload: JSON-RPC response payload.
-    """
-
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _handle_request(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Handle a single JSON-RPC request.
-
-    Args:
-        request: Parsed JSON-RPC request.
-
-    Returns:
-        JSON-RPC response payload, or None for notifications.
-    """
-
-    method = request.get("method")
-    request_id = request.get("id")
-    if method == "initialize":
-        result = _build_initialize_result(request.get("params"))
-        return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-    if request_id is None:
-        return None
-
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": -32601, "message": "Method not found"},
-    }
-
-
-def run_stdio_server() -> int:
-    """Run MCP server over stdio.
+async def run_stdio_server_async() -> int:
+    """Run MCP server over stdio asynchronously.
 
     Returns:
         Exit code.
     """
+    # Import here to avoid import errors if mcp not installed
+    import mcp.server.stdio
 
     logger = get_logger(log_level="INFO")
-    logger.info("Starting MCP server (stdio transport).")
+    logger.info("Starting MCP server (stdio transport) with official SDK.")
 
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
+    # Create server with protocol handler
+    server = create_mcp_server(SERVER_NAME, SERVER_VERSION)
 
-    for line in sys.stdin:
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            request = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("Invalid JSON received on stdin.")
-            continue
-
-        response = _handle_request(request)
-        if response is not None:
-            _write_response(response)
-            logger.info("Handled request: %s", request.get("method"))
+    # Run with stdio transport
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
 
     logger.info("MCP server shutting down.")
     return 0
 
 
+def run_stdio_server() -> int:
+    """Run MCP server over stdio (synchronous wrapper).
+
+    Returns:
+        Exit code.
+    """
+    return asyncio.run(run_stdio_server_async())
+
+
 def main() -> int:
     """Entry point for stdio MCP server."""
-
     return run_stdio_server()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

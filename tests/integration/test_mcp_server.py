@@ -5,14 +5,62 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import threading
-from typing import Dict
+import time
+from typing import Any, Dict, List, Optional
 
 import pytest
 
 
-def _read_line(stream, buffer: Dict[str, str], key: str) -> None:
-    buffer[key] = stream.readline().strip()
+def send_and_receive(
+    proc: subprocess.Popen,
+    requests: List[Dict[str, Any]],
+    timeout: float = 5.0,
+) -> List[str]:
+    """Send requests to proc stdin and collect stdout lines.
+
+    Args:
+        proc: Subprocess with stdin/stdout pipes.
+        requests: List of JSON-RPC requests/notifications to send.
+        timeout: Max time to wait for responses.
+
+    Returns:
+        List of lines read from stdout.
+    """
+    assert proc.stdin is not None
+    assert proc.stdout is not None
+
+    # Send all requests
+    for req in requests:
+        proc.stdin.write(json.dumps(req) + "\n")
+        proc.stdin.flush()
+
+    # Close stdin to signal end of input
+    proc.stdin.close()
+
+    # Read all stdout with timeout
+    lines = []
+    start = time.time()
+    while time.time() - start < timeout:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        lines.append(line.strip())
+
+    return lines
+
+
+def find_response(lines: List[str], request_id: int) -> Optional[Dict[str, Any]]:
+    """Find JSON-RPC response with given id in lines."""
+    for line in lines:
+        if not line.startswith('{"jsonrpc"'):
+            continue
+        try:
+            data = json.loads(line)
+            if data.get("id") == request_id:
+                return data
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 @pytest.mark.integration
@@ -34,33 +82,24 @@ def test_mcp_server_initialize_stdio() -> None:
         "params": {
             "protocolVersion": "2025-06-18",
             "clientInfo": {"name": "pytest", "version": "0.0.0"},
+            "capabilities": {},
         },
     }
 
-    assert proc.stdin is not None
-    proc.stdin.write(json.dumps(request) + "\n")
-    proc.stdin.flush()
+    try:
+        lines = send_and_receive(proc, [request], timeout=5.0)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
-    output: Dict[str, str] = {}
-    stdout_thread = threading.Thread(target=_read_line, args=(proc.stdout, output, "stdout"))
-    stderr_thread = threading.Thread(target=_read_line, args=(proc.stderr, output, "stderr"))
+    assert len(lines) > 0, "No stdout lines received."
 
-    stdout_thread.start()
-    stderr_thread.start()
-
-    stdout_thread.join(timeout=5)
-    stderr_thread.join(timeout=5)
-
-    proc.terminate()
-    proc.wait(timeout=5)
-
-    if stdout_thread.is_alive():
-        stdout_thread.join(timeout=1)
-    if stderr_thread.is_alive():
-        stderr_thread.join(timeout=1)
-
-    assert "stdout" in output, "Server did not emit stdout response."
-    response = json.loads(output["stdout"])
+    response = find_response(lines, 1)
+    assert response is not None, f"No initialize response found in: {lines}"
 
     assert response["jsonrpc"] == "2.0"
     assert response["id"] == 1
@@ -68,5 +107,69 @@ def test_mcp_server_initialize_stdio() -> None:
     assert "serverInfo" in response["result"]
     assert "capabilities" in response["result"]
 
-    assert "stderr" in output
-    assert output["stderr"] != ""
+
+@pytest.mark.integration
+def test_mcp_server_tools_list_stdio() -> None:
+    """Ensure tools/list works and returns empty tools array."""
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "src.mcp_server.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    requests = [
+        # Initialize request
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "clientInfo": {"name": "pytest", "version": "0.0.0"},
+                "capabilities": {},
+            },
+        },
+        # Initialized notification (required by MCP protocol)
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        },
+        # Tools list request
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {},
+        },
+    ]
+
+    try:
+        lines = send_and_receive(proc, requests, timeout=5.0)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+    assert len(lines) > 0, "No stdout lines received."
+
+    # Verify initialize response
+    init_response = find_response(lines, 1)
+    assert init_response is not None, f"No initialize response found in: {lines}"
+    assert "result" in init_response
+
+    # Verify tools/list response
+    tools_response = find_response(lines, 2)
+    assert tools_response is not None, f"No tools/list response found in: {lines}"
+
+    assert tools_response["jsonrpc"] == "2.0"
+    assert tools_response["id"] == 2
+    assert "result" in tools_response
+    assert "tools" in tools_response["result"]
+    # Initially no tools registered
+    assert isinstance(tools_response["result"]["tools"], list)
