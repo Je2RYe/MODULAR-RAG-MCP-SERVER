@@ -1781,7 +1781,7 @@ observability:
 |---------|---------|------|---------|------|
 | E1 | MCP Server 入口与 Stdio 约束 | [x] | 2026-02-04 | server.py 使用官方 MCP SDK + stdio + 2集成测试 |
 | E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-02-04 | ProtocolHandler类+tool注册+错误处理+20单元测试 |
-| E3 | query_knowledge_hub Tool | [ ] | - | |
+| E3 | query_knowledge_hub Tool | [x] | 2026-02-04 | ResponseBuilder+CitationGenerator+Tool注册+24单元测试+2集成测试 |
 | E4 | list_collections Tool | [ ] | - | |
 | E5 | get_document_summary Tool | [ ] | - | |
 | E6 | 多模态返回组装（Text + Image） | [ ] | - | |
@@ -1815,11 +1815,10 @@ observability:
 | 阶段 B | 16 | 16 | 100% |
 | 阶段 C | 15 | 15 | 100% |
 | 阶段 D | 7 | 7 | 100% |
-| 阶段 E | 6 | 2 | 33% |
+| 阶段 E | 6 | 3 | 50% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 4 | 0 | 0% |
-| **总计** | **56** | **43** | **77%** |
-| **总计** | **56** | **42** | **75%** |
+| **总计** | **56** | **44** | **79%** |
 
 
 ---

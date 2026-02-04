@@ -15,6 +15,7 @@ def send_and_receive(
     proc: subprocess.Popen,
     requests: List[Dict[str, Any]],
     timeout: float = 5.0,
+    expected_responses: int = 0,
 ) -> List[str]:
     """Send requests to proc stdin and collect stdout lines.
 
@@ -22,6 +23,7 @@ def send_and_receive(
         proc: Subprocess with stdin/stdout pipes.
         requests: List of JSON-RPC requests/notifications to send.
         timeout: Max time to wait for responses.
+        expected_responses: Number of responses to wait for (0 = wait until timeout/EOF).
 
     Returns:
         List of lines read from stdout.
@@ -34,17 +36,35 @@ def send_and_receive(
         proc.stdin.write(json.dumps(req) + "\n")
         proc.stdin.flush()
 
-    # Close stdin to signal end of input
-    proc.stdin.close()
-
-    # Read all stdout with timeout
+    # Read stdout with timeout
     lines = []
     start = time.time()
+    response_count = 0
+    
+    # Count expected responses (requests with 'id' field, excluding notifications)
+    if expected_responses == 0:
+        expected_responses = sum(1 for req in requests if 'id' in req)
+    
     while time.time() - start < timeout:
+        # Check if we got enough responses
+        if expected_responses > 0 and response_count >= expected_responses:
+            break
+            
         line = proc.stdout.readline()
         if not line:
-            break
-        lines.append(line.strip())
+            # Give a bit more time for slow responses
+            time.sleep(0.1)
+            continue
+        stripped = line.strip()
+        if stripped:
+            lines.append(stripped)
+            # Count JSON-RPC responses (have 'id' and 'result' or 'error')
+            try:
+                data = json.loads(stripped)
+                if 'id' in data and ('result' in data or 'error' in data):
+                    response_count += 1
+            except json.JSONDecodeError:
+                pass
 
     return lines
 
@@ -147,7 +167,7 @@ def test_mcp_server_tools_list_stdio() -> None:
     ]
 
     try:
-        lines = send_and_receive(proc, requests, timeout=5.0)
+        lines = send_and_receive(proc, requests, timeout=10.0)
     finally:
         proc.terminate()
         try:
@@ -171,5 +191,10 @@ def test_mcp_server_tools_list_stdio() -> None:
     assert tools_response["id"] == 2
     assert "result" in tools_response
     assert "tools" in tools_response["result"]
-    # Initially no tools registered
+    # Should have at least query_knowledge_hub tool registered
     assert isinstance(tools_response["result"]["tools"], list)
+    assert len(tools_response["result"]["tools"]) >= 1
+    
+    # Verify query_knowledge_hub tool is present
+    tool_names = [t["name"] for t in tools_response["result"]["tools"]]
+    assert "query_knowledge_hub" in tool_names

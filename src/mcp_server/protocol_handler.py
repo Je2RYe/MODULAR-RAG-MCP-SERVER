@@ -189,10 +189,22 @@ class ProtocolHandler:
         }
 
 
+def _register_default_tools(protocol_handler: ProtocolHandler) -> None:
+    """Register all default MCP tools with the protocol handler.
+
+    Args:
+        protocol_handler: ProtocolHandler instance to register tools with.
+    """
+    # Import and register query_knowledge_hub tool
+    from src.mcp_server.tools.query_knowledge_hub import register_tool
+    register_tool(protocol_handler)
+
+
 def create_mcp_server(
     server_name: str,
     server_version: str,
     protocol_handler: Optional[ProtocolHandler] = None,
+    register_tools: bool = True,
 ) -> Server:
     """Create and configure an MCP server with the protocol handler.
 
@@ -204,6 +216,7 @@ def create_mcp_server(
         server_version: Version string.
         protocol_handler: Optional pre-configured protocol handler.
             If None, a new one will be created.
+        register_tools: Whether to register default tools (default: True).
 
     Returns:
         Configured Server instance ready to run.
@@ -213,6 +226,10 @@ def create_mcp_server(
             server_name=server_name,
             server_version=server_version,
         )
+
+    # Register default tools if requested
+    if register_tools:
+        _register_default_tools(protocol_handler)
 
     # Create low-level server
     server = Server(server_name)
