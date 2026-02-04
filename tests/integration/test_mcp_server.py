@@ -191,10 +191,11 @@ def test_mcp_server_tools_list_stdio() -> None:
     assert tools_response["id"] == 2
     assert "result" in tools_response
     assert "tools" in tools_response["result"]
-    # Should have at least query_knowledge_hub tool registered
+    # Should have at least query_knowledge_hub and list_collections tools registered
     assert isinstance(tools_response["result"]["tools"], list)
-    assert len(tools_response["result"]["tools"]) >= 1
+    assert len(tools_response["result"]["tools"]) >= 2
     
-    # Verify query_knowledge_hub tool is present
+    # Verify registered tools are present
     tool_names = [t["name"] for t in tools_response["result"]["tools"]]
     assert "query_knowledge_hub" in tool_names
+    assert "list_collections" in tool_names
