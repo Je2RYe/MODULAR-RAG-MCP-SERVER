@@ -29,6 +29,12 @@ from src.core.query_engine.fusion import (
     RRFFusion,
     rrf_score,
 )
+from src.core.query_engine.hybrid_search import (
+    HybridSearch,
+    HybridSearchConfig,
+    HybridSearchResult,
+    create_hybrid_search,
+)
 
 __all__ = [
     "QueryProcessor",
@@ -43,4 +49,8 @@ __all__ = [
     "create_sparse_retriever",
     "RRFFusion",
     "rrf_score",
+    "HybridSearch",
+    "HybridSearchConfig",
+    "HybridSearchResult",
+    "create_hybrid_search",
 ]
