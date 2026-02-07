@@ -14,8 +14,9 @@ Do NOT:
 - Change the meaning or intent of the text
 - Remove important technical details
 - Remove or modify [IMAGE: ...] placeholders - these are critical markers for images
+- Add ANY Markdown formatting such as headings (#, ##, ###), bold (**), italic (*), horizontal rules (---), or bullet lists (- or *)
 
-Output: The refined text chunk, maintaining similar length to the original.
+Output: The refined text as PLAIN TEXT only, maintaining similar length to the original. Do not use any Markdown syntax.
 
 ---
 

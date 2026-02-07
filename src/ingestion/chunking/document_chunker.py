@@ -210,8 +210,10 @@ class DocumentChunker:
         # Copy all document metadata (shallow copy is sufficient for primitives)
         chunk_metadata = document.metadata.copy()
         
-        # Remove document-level 'images' field as it's redundant for chunks
-        # Chunks use 'image_refs' instead, which is specific to each chunk
+        # Get document-level images for lookup
+        doc_images = document.metadata.get("images", [])
+        
+        # Remove document-level 'images' field - we'll add chunk-specific images below
         chunk_metadata.pop("images", None)
         
         # Add chunk-specific fields
@@ -228,12 +230,20 @@ class DocumentChunker:
         
         chunk_metadata["image_refs"] = image_refs
         
+        # Build chunk-specific 'images' list with full metadata for referenced images
+        # This is needed by ImageCaptioner to access image paths for Vision API calls
+        chunk_images = []
+        if image_refs and doc_images:
+            image_lookup = {img.get("id"): img for img in doc_images}
+            for img_id in image_refs:
+                if img_id in image_lookup:
+                    chunk_images.append(image_lookup[img_id])
+        
+        if chunk_images:
+            chunk_metadata["images"] = chunk_images
+        
         # Try to determine page_num from the first referenced image
-        if image_refs and "images" in document.metadata:
-            images_list = document.metadata.get("images", [])
-            for img_info in images_list:
-                if img_info.get("id") in image_refs:
-                    chunk_metadata["page_num"] = img_info.get("page")
-                    break
+        if chunk_images:
+            chunk_metadata["page_num"] = chunk_images[0].get("page")
         
         return chunk_metadata
