@@ -20,8 +20,8 @@ def _page_overview() -> None:
 
 
 def _page_data_browser() -> None:
-    st.header("🔍 Data Browser")
-    st.info("🚧 This page will be implemented in G3.")
+    from src.observability.dashboard.pages.data_browser import render
+    render()
 
 
 def _page_ingestion_manager() -> None:
