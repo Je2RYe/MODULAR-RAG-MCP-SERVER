@@ -16,6 +16,7 @@ Design Principles:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -283,12 +284,14 @@ class CoreReranker:
         # Attempt reranking
         try:
             logger.debug(f"Reranking {len(candidates)} candidates with {self._reranker_type}")
+            _t0 = time.monotonic()
             reranked_candidates = self._reranker.rerank(
                 query=query,
                 candidates=candidates,
                 trace=trace,
                 **kwargs,
             )
+            _elapsed = (time.monotonic() - _t0) * 1000.0
             
             # Convert back to RetrievalResult
             reranked_results = self._candidates_to_results(reranked_candidates, results)
@@ -297,6 +300,14 @@ class CoreReranker:
             final_results = reranked_results[:effective_top_k]
             
             logger.info(f"Reranking complete: {len(final_results)} results returned")
+            
+            if trace is not None:
+                trace.record_stage("rerank", {
+                    "method": self._reranker_type,
+                    "provider": self._reranker_type,
+                    "input_count": len(candidates),
+                    "output_count": len(final_results),
+                }, elapsed_ms=_elapsed)
             
             return RerankResult(
                 results=final_results,

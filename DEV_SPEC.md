@@ -2025,7 +2025,7 @@ dashboard:
 |---------|---------|------|---------|------|
 | F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2025-07-15 | TraceContext增强(trace_type/finish/elapsed_ms/to_dict)+TraceCollector+28单元测试 |
 | F2 | 结构化日志 logger（JSON Lines） | [x] | 2025-07-15 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
-| F3 | 在 Query 链路打点 | [ ] | - | |
+| F3 | 在 Query 链路打点 | [x] | 2025-07-15 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
 | F4 | 在 Ingestion 链路打点 | [ ] | - | |
 | F5 | Pipeline 进度回调 (on_progress) | [ ] | - | |
 

@@ -16,6 +16,7 @@ Design Principles:
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -214,7 +215,15 @@ class HybridSearch:
         logger.debug(f"HybridSearch: query='{query[:50]}...', top_k={effective_top_k}")
         
         # Step 1: Process query
+        _t0 = time.monotonic()
         processed_query = self._process_query(query)
+        _elapsed = (time.monotonic() - _t0) * 1000.0
+        if trace is not None:
+            trace.record_stage("query_processing", {
+                "method": "query_processor",
+                "original_query": query,
+                "keywords": processed_query.keywords,
+            }, elapsed_ms=_elapsed)
         
         # Merge explicit filters with query-extracted filters
         merged_filters = self._merge_filters(processed_query.filters, filters)
@@ -470,12 +479,21 @@ class HybridSearch:
             return None, "Dense retriever not configured"
         
         try:
+            _t0 = time.monotonic()
             results = self.dense_retriever.retrieve(
                 query=query,
                 top_k=self.config.dense_top_k,
                 filters=filters,
                 trace=trace,
             )
+            _elapsed = (time.monotonic() - _t0) * 1000.0
+            if trace is not None:
+                trace.record_stage("dense_retrieval", {
+                    "method": "dense",
+                    "provider": getattr(self.dense_retriever, 'provider_name', 'unknown'),
+                    "top_k": self.config.dense_top_k,
+                    "result_count": len(results) if results else 0,
+                }, elapsed_ms=_elapsed)
             return results, None
         except Exception as e:
             error_msg = f"Dense retrieval error: {e}"
@@ -508,12 +526,21 @@ class HybridSearch:
             # Extract collection from filters if present
             collection = filters.get('collection') if filters else None
             
+            _t0 = time.monotonic()
             results = self.sparse_retriever.retrieve(
                 keywords=keywords,
                 top_k=self.config.sparse_top_k,
                 collection=collection,
                 trace=trace,
             )
+            _elapsed = (time.monotonic() - _t0) * 1000.0
+            if trace is not None:
+                trace.record_stage("sparse_retrieval", {
+                    "method": "bm25",
+                    "keyword_count": len(keywords),
+                    "top_k": self.config.sparse_top_k,
+                    "result_count": len(results) if results else 0,
+                }, elapsed_ms=_elapsed)
             return results, None
         except Exception as e:
             error_msg = f"Sparse retrieval error: {e}"
@@ -557,11 +584,21 @@ class HybridSearch:
             # Only one source, no fusion needed
             return ranking_lists[0][:top_k]
         
-        return self.fusion.fuse(
+        _t0 = time.monotonic()
+        fused = self.fusion.fuse(
             ranking_lists=ranking_lists,
             top_k=top_k,
             trace=trace,
         )
+        _elapsed = (time.monotonic() - _t0) * 1000.0
+        if trace is not None:
+            trace.record_stage("fusion", {
+                "method": "rrf",
+                "input_lists": len(ranking_lists),
+                "top_k": top_k,
+                "result_count": len(fused),
+            }, elapsed_ms=_elapsed)
+        return fused
     
     def _interleave_results(
         self,
