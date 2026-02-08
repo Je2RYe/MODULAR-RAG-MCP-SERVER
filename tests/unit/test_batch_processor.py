@@ -293,11 +293,11 @@ def test_process_with_trace_records_batch_info():
     # Verify batch_processing stage was recorded
     batch_data = trace.get_stage_data("batch_processing")
     assert batch_data is not None
-    assert batch_data["data"]["total_chunks"] == 5
-    assert batch_data["data"]["batch_count"] == 3
-    assert batch_data["data"]["batch_size"] == 2
-    assert batch_data["data"]["successful_chunks"] == 5
-    assert batch_data["data"]["failed_chunks"] == 0
+    assert batch_data["total_chunks"] == 5
+    assert batch_data["batch_count"] == 3
+    assert batch_data["batch_size"] == 2
+    assert batch_data["successful_chunks"] == 5
+    assert batch_data["failed_chunks"] == 0
 
 
 def test_process_with_trace_records_individual_batches():
@@ -316,8 +316,8 @@ def test_process_with_trace_records_individual_batches():
     for batch_idx in range(3):
         batch_data = trace.get_stage_data(f"batch_{batch_idx}")
         assert batch_data is not None
-        assert "duration_seconds" in batch_data["data"]
-        assert "chunks_processed" in batch_data["data"]
+        assert "duration_seconds" in batch_data
+        assert "chunks_processed" in batch_data
 
 
 # ============================================================================
@@ -387,7 +387,7 @@ def test_process_records_batch_errors_to_trace():
     assert result.failed_chunks == 3
     batch_0_error = trace.get_stage_data("batch_0_error")
     assert batch_0_error is not None
-    assert "Dense encoder failed" in batch_0_error["data"]["error"]
+    assert "Dense encoder failed" in batch_0_error["error"]
 
 
 # ============================================================================

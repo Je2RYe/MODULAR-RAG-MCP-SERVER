@@ -235,10 +235,10 @@ class TestTransformPipeline:
         
         # Check trace was recorded
         assert len(trace.stages) > 0
-        assert 'metadata_enricher' in trace.stages
-        metadata_stage = trace.stages['metadata_enricher']
-        assert metadata_stage['data']['total_chunks'] == 1
-        assert metadata_stage['data']['success_count'] == 1
+        stage_data = trace.get_stage_data('metadata_enricher')
+        assert stage_data is not None
+        assert stage_data['total_chunks'] == 1
+        assert stage_data['success_count'] == 1
 
 
 # ============================================================================
@@ -326,8 +326,8 @@ class TestLLMEnhancement:
         enricher.transform([sample_chunk_simple], trace=trace)
         
         # Should have both llm_enrich and metadata_enricher stages
-        assert 'llm_enrich' in trace.stages
-        assert 'metadata_enricher' in trace.stages
+        assert trace.get_stage_data('llm_enrich') is not None
+        assert trace.get_stage_data('metadata_enricher') is not None
 
 
 # ============================================================================

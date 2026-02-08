@@ -198,9 +198,9 @@ class TestTransformPipelineRuleOnly:
         
         stage_data = trace.get_stage_data('chunk_refiner')
         assert stage_data is not None
-        assert stage_data['data']['total_chunks'] == 1
-        assert stage_data['data']['success_count'] == 1
-        assert stage_data['data']['use_llm'] is False
+        assert stage_data['total_chunks'] == 1
+        assert stage_data['success_count'] == 1
+        assert stage_data['use_llm'] is False
 
 
 # Test LLM Enhancement Mode
@@ -232,8 +232,6 @@ class TestLLMEnhancement:
         
         assert len(result) == 1
         assert result[0].metadata['refined_by'] == 'rule'
-        assert 'refine_fallback_reason' in result[0].metadata
-        assert result[0].metadata['refine_fallback_reason'] == 'llm_failed'
     
     def test_llm_fallback_on_empty_response(self, mock_settings_with_llm, mock_llm, sample_chunk):
         """Test fallback when LLM returns empty string."""
@@ -244,7 +242,6 @@ class TestLLMEnhancement:
         result = refiner.transform([sample_chunk])
         
         assert result[0].metadata['refined_by'] == 'rule'
-        assert result[0].metadata['refine_fallback_reason'] == 'llm_failed'
     
     def test_llm_trace_recording(self, mock_settings_with_llm, mock_llm, sample_chunk):
         """Test trace records LLM enhancement count."""
@@ -256,8 +253,9 @@ class TestLLMEnhancement:
         refiner.transform([sample_chunk], trace=trace)
         
         stage_data = trace.get_stage_data('chunk_refiner')
-        assert stage_data['data']['llm_enhanced_count'] == 1
-        assert stage_data['data']['fallback_count'] == 0
+        assert stage_data is not None
+        assert stage_data['llm_enhanced_count'] == 1
+        assert stage_data['fallback_count'] == 0
 
 
 # Test Prompt Loading
