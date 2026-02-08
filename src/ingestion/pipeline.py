@@ -18,6 +18,7 @@ Design Principles:
 
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+import time
 
 from src.core.settings import Settings, load_settings
 from src.core.types import Document, Chunk
@@ -241,7 +242,9 @@ class IngestionPipeline:
             # ─────────────────────────────────────────────────────────────
             logger.info("\n📄 Stage 2: Document Loading")
             
+            _t0 = time.monotonic()
             document = self.loader.load(str(file_path))
+            _elapsed = (time.monotonic() - _t0) * 1000.0
             
             text_preview = document.text[:200].replace('\n', ' ') + "..." if len(document.text) > 200 else document.text
             image_count = len(document.metadata.get("images", []))
@@ -256,13 +259,22 @@ class IngestionPipeline:
                 "text_length": len(document.text),
                 "image_count": image_count
             }
+            if trace is not None:
+                trace.record_stage("load", {
+                    "method": "markitdown",
+                    "doc_id": document.id,
+                    "text_length": len(document.text),
+                    "image_count": image_count,
+                }, elapsed_ms=_elapsed)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 3: Chunking
             # ─────────────────────────────────────────────────────────────
             logger.info("\n✂️  Stage 3: Document Chunking")
             
+            _t0 = time.monotonic()
             chunks = self.chunker.split_document(document)
+            _elapsed = (time.monotonic() - _t0) * 1000.0
             
             logger.info(f"  Chunks generated: {len(chunks)}")
             if chunks:
@@ -273,6 +285,12 @@ class IngestionPipeline:
                 "chunk_count": len(chunks),
                 "avg_chunk_size": sum(len(c.text) for c in chunks) // len(chunks) if chunks else 0
             }
+            if trace is not None:
+                trace.record_stage("split", {
+                    "method": "recursive",
+                    "chunk_count": len(chunks),
+                    "avg_chunk_size": sum(len(c.text) for c in chunks) // len(chunks) if chunks else 0,
+                }, elapsed_ms=_elapsed)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 4: Transform Pipeline
@@ -281,6 +299,7 @@ class IngestionPipeline:
             
             # 4a: Chunk Refinement
             logger.info("  4a. Chunk Refinement...")
+            _t0_transform = time.monotonic()
             chunks = self.chunk_refiner.transform(chunks, trace)
             refined_by_llm = sum(1 for c in chunks if c.metadata.get("refined_by") == "llm")
             refined_by_rule = sum(1 for c in chunks if c.metadata.get("refined_by") == "rule")
@@ -304,6 +323,16 @@ class IngestionPipeline:
                 "metadata_enricher": {"llm": enriched_by_llm, "rule": enriched_by_rule},
                 "image_captioner": {"captioned_chunks": captioned}
             }
+            _elapsed_transform = (time.monotonic() - _t0_transform) * 1000.0
+            if trace is not None:
+                trace.record_stage("transform", {
+                    "method": "refine+enrich+caption",
+                    "refined_by_llm": refined_by_llm,
+                    "refined_by_rule": refined_by_rule,
+                    "enriched_by_llm": enriched_by_llm,
+                    "enriched_by_rule": enriched_by_rule,
+                    "captioned_chunks": captioned,
+                }, elapsed_ms=_elapsed_transform)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 5: Encoding
@@ -311,7 +340,9 @@ class IngestionPipeline:
             logger.info("\n🔢 Stage 5: Encoding")
             
             # Process through BatchProcessor
+            _t0 = time.monotonic()
             batch_result = self.batch_processor.process(chunks, trace)
+            _elapsed = (time.monotonic() - _t0) * 1000.0
             
             dense_vectors = batch_result.dense_vectors
             sparse_stats = batch_result.sparse_stats
@@ -324,6 +355,13 @@ class IngestionPipeline:
                 "dense_dimension": len(dense_vectors[0]) if dense_vectors else 0,
                 "sparse_doc_count": len(sparse_stats)
             }
+            if trace is not None:
+                trace.record_stage("embed", {
+                    "method": "batch_processor",
+                    "dense_vector_count": len(dense_vectors),
+                    "dense_dimension": len(dense_vectors[0]) if dense_vectors else 0,
+                    "sparse_doc_count": len(sparse_stats),
+                }, elapsed_ms=_elapsed)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 6: Storage
@@ -332,6 +370,7 @@ class IngestionPipeline:
             
             # 6a: Vector Upsert
             logger.info("  6a. Vector Storage (ChromaDB)...")
+            _t0_storage = time.monotonic()
             vector_ids = self.vector_upserter.upsert(chunks, dense_vectors, trace)
             logger.info(f"      Stored {len(vector_ids)} vectors")
             
@@ -361,6 +400,14 @@ class IngestionPipeline:
                 "bm25_docs": len(sparse_stats),
                 "images_indexed": len(images)
             }
+            _elapsed_storage = (time.monotonic() - _t0_storage) * 1000.0
+            if trace is not None:
+                trace.record_stage("upsert", {
+                    "method": "chroma",
+                    "vector_count": len(vector_ids),
+                    "bm25_docs": len(sparse_stats),
+                    "images_indexed": len(images),
+                }, elapsed_ms=_elapsed_storage)
             
             # ─────────────────────────────────────────────────────────────
             # Mark Success
