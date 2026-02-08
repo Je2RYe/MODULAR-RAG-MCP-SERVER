@@ -17,7 +17,7 @@ Design Principles:
 """
 
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Callable, List, Optional, Dict, Any
 import time
 
 from src.core.settings import Settings, load_settings
@@ -197,19 +197,29 @@ class IngestionPipeline:
     def run(
         self,
         file_path: str,
-        trace: Optional[TraceContext] = None
+        trace: Optional[TraceContext] = None,
+        on_progress: Optional[Callable[[str, int, int], None]] = None,
     ) -> PipelineResult:
         """Execute the full ingestion pipeline on a file.
         
         Args:
             file_path: Path to the file to process (e.g., PDF)
             trace: Optional trace context for observability
+            on_progress: Optional callback ``(stage_name, current, total)``
+                invoked when each pipeline stage completes.  *current* is
+                the 1-based index of the completed stage; *total* is the
+                number of stages (currently 6).
         
         Returns:
             PipelineResult with success status and statistics
         """
         file_path = Path(file_path)
         stages: Dict[str, Any] = {}
+        _total_stages = 6
+
+        def _notify(stage_name: str, step: int) -> None:
+            if on_progress is not None:
+                on_progress(stage_name, step, _total_stages)
         
         logger.info(f"=" * 60)
         logger.info(f"Starting Ingestion Pipeline for: {file_path}")
@@ -236,6 +246,7 @@ class IngestionPipeline:
             
             stages["integrity"] = {"file_hash": file_hash, "skipped": False}
             logger.info("  ✓ File needs processing")
+            _notify("integrity", 1)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 2: Document Loading
@@ -266,6 +277,7 @@ class IngestionPipeline:
                     "text_length": len(document.text),
                     "image_count": image_count,
                 }, elapsed_ms=_elapsed)
+            _notify("load", 2)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 3: Chunking
@@ -291,6 +303,7 @@ class IngestionPipeline:
                     "chunk_count": len(chunks),
                     "avg_chunk_size": sum(len(c.text) for c in chunks) // len(chunks) if chunks else 0,
                 }, elapsed_ms=_elapsed)
+            _notify("split", 3)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 4: Transform Pipeline
@@ -333,6 +346,7 @@ class IngestionPipeline:
                     "enriched_by_rule": enriched_by_rule,
                     "captioned_chunks": captioned,
                 }, elapsed_ms=_elapsed_transform)
+            _notify("transform", 4)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 5: Encoding
@@ -362,6 +376,7 @@ class IngestionPipeline:
                     "dense_dimension": len(dense_vectors[0]) if dense_vectors else 0,
                     "sparse_doc_count": len(sparse_stats),
                 }, elapsed_ms=_elapsed)
+            _notify("embed", 5)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 6: Storage
@@ -408,6 +423,7 @@ class IngestionPipeline:
                     "bm25_docs": len(sparse_stats),
                     "images_indexed": len(images),
                 }, elapsed_ms=_elapsed_storage)
+            _notify("upsert", 6)
             
             # ─────────────────────────────────────────────────────────────
             # Mark Success

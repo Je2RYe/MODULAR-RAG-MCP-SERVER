@@ -2027,7 +2027,7 @@ dashboard:
 | F2 | 结构化日志 logger（JSON Lines） | [x] | 2025-07-15 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
 | F3 | 在 Query 链路打点 | [x] | 2025-07-15 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
 | F4 | 在 Ingestion 链路打点 | [x] | 2025-07-15 | Pipeline五阶段trace注入(load/split/transform/embed/upsert)+11集成测试 |
-| F5 | Pipeline 进度回调 (on_progress) | [ ] | - | |
+| F5 | Pipeline 进度回调 (on_progress) | [x] | 2025-07-15 | on_progress回调(6阶段通知)+6单元测试 |
 
 #### 阶段 G：可视化管理平台 Dashboard
 
