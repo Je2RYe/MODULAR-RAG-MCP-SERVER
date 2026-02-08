@@ -30,8 +30,8 @@ def _page_ingestion_manager() -> None:
 
 
 def _page_ingestion_traces() -> None:
-    st.header("🔬 Ingestion Traces")
-    st.info("🚧 This page will be implemented in G5.")
+    from src.observability.dashboard.pages.ingestion_traces import render
+    render()
 
 
 def _page_query_traces() -> None:
