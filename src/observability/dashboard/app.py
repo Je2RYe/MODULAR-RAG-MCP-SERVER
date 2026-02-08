@@ -35,8 +35,8 @@ def _page_ingestion_traces() -> None:
 
 
 def _page_query_traces() -> None:
-    st.header("🔎 Query Traces")
-    st.info("🚧 This page will be implemented in G6.")
+    from src.observability.dashboard.pages.query_traces import render
+    render()
 
 
 # ── Navigation ───────────────────────────────────────────────────────
