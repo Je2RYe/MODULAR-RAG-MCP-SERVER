@@ -125,14 +125,24 @@
     - **架构统一**：无需引入复杂的 CLIP 等多模态向量库，复用现有的纯文本 RAG 检索链路即可实现“搜文字出图”。
     - **语义对齐**：通过 LLM 将图像的视觉特征转化为语义理解，使用户能通过自然语言精准检索到图表、流程图等视觉信息。
 
-### 可观测性与评估体系 (Observability & Evaluation)
-针对 RAG 系统常见的“黑盒”问题，本项目致力于让每一次生成过程都**透明可见**且**可量化**：
+### 可观测性、可视化管理与评估体系 (Observability, Visual Management & Evaluation)
+针对 RAG 系统常见的“黑盒”问题，本项目致力于让每一次生成过程都**透明可见**且**可量化**，并提供完整的**本地可视化管理平台**：
 - **全链路白盒化 (White-box Tracing)**：
-    - 记录并可视化 RAG 流水线的每一个中间状态：从 `Query` 改写，到 `Hybrid Search` 的初步召回列表，再到 `Reranker` 的打分排序，最后到 `LLM` 的 Prompt 构建。
+    - 记录并可视化 RAG 流水线的每一个中间状态：覆盖 Ingestion（加载→切分→增强→编码→存储）与 Query（查询预处理→Dense/Sparse 召回→融合→重排→响应构建）两条完整链路。
     - 开发者可以清晰看到“系统为什么选了这个文档”以及“Rerank 起了什么作用”，从而精准定位坏 Case。
+- **可视化管理平台 (Visual Management Dashboard)**：
+    - 基于 Streamlit 的本地 Web 管理面板，提供六大功能页面：
+        - **系统总览**：展示当前可插拔组件配置（LLM/Embedding/Splitter/Reranker）与数据资产统计。
+        - **数据浏览器**：查看已索引的文档列表、Chunk 详情（原文、metadata 各字段、关联图片），支持搜索过滤。
+        - **Ingestion 管理**：通过界面选择文件触发摄取、实时展示各阶段进度、支持删除已摄入文档（跨 4 个存储的协调删除）。
+        - **Query 追踪**：查询历史列表，耗时瀑布图，Dense/Sparse 召回对比，Rerank 前后排名变化。
+        - **Ingestion 追踪**：摄取历史列表，各阶段耗时与处理详情。
+        - **评估面板**：运行评估任务、查看各项指标、历史趋势对比。
+    - 所有页面基于 Trace 中的 `method`/`provider` 字段**动态渲染**，更换可插拔组件后 Dashboard 自动适配，无需修改代码。
 - **自动化评估闭环 (Automated Evaluation)**：
-    - 集成 Ragas 等评估框架，为每一次检索和生成计算“体检报告”（如召回率 Hit Rate、准确性 Faithfulness 等指标）。
+    - 集成 Ragas 等评估框架（可插拔），为每一次检索和生成计算“体检报告”（如召回率 Hit Rate、准确性 Faithfulness 等指标）。
     - 拒绝“凭感觉”调优，建立基于数据的迭代反馈回路，确保每一次策略调整（如修改 Chunk Size 或更换 Reranker）都有量化的分数支撑。
+
 ### 业务可扩展性 (Extensibility for Your Own Projects)
 本项目采用**通用化架构设计**，不仅是一个开箱即用的知识问答系统，更是一个可以快速适配各类业务场景的**扩展基座**：
 
@@ -162,12 +172,13 @@
 
 #### 3.1.1 数据摄取流水线 
 
-**目标：** 使用 LlamaIndex 的 Ingestion Pipeline 构建统一、可配置且可观测的数据导入与分块（chunking）能力，覆盖文档加载、格式解析、语义切分、多模态增强、嵌入计算、去重与批量上载到向量存储。该能力应是可重用的库模块，便于在 `ingest.py`、离线批处理和测试中调用。
+**目标：** 构建统一、可配置且可观测的数据摄取流水线，覆盖文档加载、格式解析、语义切分、多模态增强、嵌入计算、去重与批量上载到向量存储。该能力应是可重用的库模块，便于在 `ingest.py`、Dashboard 管理面板、离线批处理和测试中调用。
 
-- **为什么选 LlamaIndex：**
-	- 提供成熟的 Ingestion / Node parsing 抽象，易于插入自定义 Transform（例如 ImageCaptioning）。
-	- 与主流 embedding provider 有良好适配器生态，架构中统一使用 Chroma 作为向量存储。
+- **自研 Pipeline 框架（设计灵感参考 LlamaIndex 分层思想，但不依赖 LlamaIndex 库）：**
+	- 采用自定义抽象接口（`BaseLoader`/`BaseSplitter`/`BaseTransform`/`BaseEmbedding`/`BaseVectorStore`），实现完全可控的可插拔架构。
 	- 支持可组合的 Loader -> Splitter -> Transform -> Embed -> Upsert 流程，便于实现可观测的流水线。
+	- 与主流 embedding provider 有良好适配，架构中统一使用 Chroma 作为向量存储。
+
 
 设计要点：
 - **明确分层职责**：
@@ -265,12 +276,41 @@
 		1. **Index Data**: 用于计算相似度的 Dense Vector 和 Sparse Vector。
 		2. **Payload Data**: 完整的 Chunk 原始文本 (Content) 及 Metadata。
 		**机制优势**：确保检索命中 ID 后能立即取回对应的正文内容，无需额外的查库操作 (Lookup)，保障了 Retrieve 阶段的毫秒级响应。
-	- **幂等性设计 (Idempotency)**：
+- **幂等性设计 (Idempotency)**：
 		- 为每个 Chunk 生成全局唯一的 `chunk_id`，生成算法采用确定的哈希组合：`hash(source_path + section_path + content_hash)`。
 		- 写入时采用 "Upsert"（更新或插入）语义，确保同一文档即使被多次处理，数据库中也永远只有一份最新副本，彻底避免重复索引问题。
 	- **原子性保证**：以 Batch 为单位进行事务性写入，确保索引状态的一致性。
 
-#### 3.1.2 检索流水线 (Retrieval Pipeline)
+- **文档生命周期管理 (Document Lifecycle Management)**
+
+	为支持 Dashboard 管理面板中的文档浏览与删除功能，Ingestion 层需要提供完整的文档生命周期管理能力：
+
+	- **DocumentManager（文档管理器）**：独立于 Pipeline 的文档管理模块（`src/ingestion/document_manager.py`），负责跨存储的协调操作：
+		- `list_documents(collection?) -> List[DocumentInfo]`：列出已摄入文档及其统计信息（chunk 数、图片数、摄入时间）。
+		- `get_document_detail(doc_id) -> DocumentDetail`：获取单个文档的详细信息（所有 chunk 内容、metadata、关联图片）。
+		- `delete_document(source_path, collection) -> DeleteResult`：协调删除跨 4 个存储的关联数据：
+			1. **Chroma** — 按 `metadata.source` 删除所有 chunk 向量
+			2. **BM25 Indexer** — 移除对应文档的倒排索引条目
+			3. **ImageStorage** — 删除该文档关联的所有图片文件
+			4. **FileIntegrity** — 移除处理记录，使文件可重新摄入
+		- `get_collection_stats(collection?) -> CollectionStats`：返回集合级统计（文档数、chunk 数、存储大小等）。
+
+	- **Pipeline 进度回调 (Progress Callback)**：在 `IngestionPipeline.run()` 方法中新增可选 `on_progress` 参数：
+		```python
+		def run(self, source_path: str, collection: str = "default",
+		        on_progress: Callable[[str, int, int], None] | None = None) -> IngestionResult:
+		```
+		- 回调签名：`on_progress(stage_name: str, current: int, total: int)`
+		- 各阶段（load / split / transform / embed / upsert）在处理每个 batch 时调用回调，Dashboard 据此展示实时进度条。
+		- `on_progress` 为 `None` 时行为与当前完全一致，不影响 CLI 和测试场景。
+
+	- **存储层接口扩展**：为支持 DocumentManager 的删除操作，需扩展以下存储接口：
+		- `BaseVectorStore` 新增 `delete_by_metadata(filter: dict) -> int` — 按 metadata 条件批量删除
+		- `BM25Indexer` 新增 `remove_document(source: str) -> None` — 移除指定文档的索引条目
+		- `FileIntegrityChecker` 新增 `remove_record(file_hash: str) -> None` 和 `list_processed() -> List[dict]`
+
+#### 3.1.2 检索流水线
+
 
 本模块实现核心的 RAG 检索引擎，采用 **“多阶段过滤 (Multi-stage Filtering)”** 架构，负责接收已消歧的独立查询（Standalone Query），并精准召回 Top-K 最相关片段。
 
@@ -443,8 +483,9 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 | **Ollama / vLLM (本地)** | 完全离线、隐私敏感、无 API 成本 | `provider: ollama`, `base_url`, `model` |
 
 - **技术选型建议**：
-	- 如 3.1 节所述，本项目以 **LlamaIndex 为主框架**，其内置了对主流 LLM/Embedding Provider 的适配（OpenAI、Azure、Ollama 等）。LlamaIndex 的 `LLM` 和 `Embedding` 抽象类已封装了统一调用接口。
-	- 对于 LlamaIndex 未覆盖的 Provider（如 DeepSeek），可通过其 **OpenAI-Compatible 模式**接入（设置自定义 `api_base`），或引入 LangChain 的对应适配器。
+	- 本项目采用自研的 `BaseLLM` / `BaseEmbedding` 抽象基类，配合工厂模式（`llm_factory.py` / `embedding_factory.py`）实现统一调用接口。已内置 Azure OpenAI、OpenAI、Ollama、DeepSeek 四种 Provider 适配。
+	- 对于其他 Provider，可通过 **OpenAI-Compatible 模式**接入（设置自定义 `api_base`），或实现 `BaseLLM` 接口并在工厂中注册。
+
 	- 对于企业级需求，可在其基础上增加统一的 **重试、限流、日志** 中间层，提升生产可靠性，但本项目暂不实现，这里仅提供思路。
 	- **Vision LLM 扩展**：针对图像描述生成（Image Captioning）需求，系统扩展了 `BaseVisionLLM` 接口，支持文本+图片的多模态输入。当前实现：
 		- **Azure OpenAI Vision**（GPT-4o/GPT-4-Vision）：企业级合规部署，支持复杂图表解析，与 Azure 生态深度集成。
@@ -457,9 +498,10 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 
 与 3.3.2 节的 LLM 抽象类似，检索层各组件的可插拔性同样依赖两层设计：
 
-1. **框架提供的统一接口**：本项目采用 **LlamaIndex Ingestion Pipeline** 作为核心框架，其为向量数据库、Embedding 等组件定义了统一的抽象接口，不同实现只需遵循相同接口即可无缝替换。
+1. **自研的统一抽象接口**：本项目为向量数据库（`BaseVectorStore`）、Embedding（`BaseEmbedding`）、分块（`BaseSplitter`）等核心组件定义了统一的抽象基类，不同实现只需遵循相同接口即可无缝替换。
 
-2. **我们编写的工厂函数**：对于框架未覆盖的组件（如稀疏检索、融合策略），我们自行定义抽象接口并编写工厂函数，根据配置决定实例化哪个具体实现。
+2. **工厂函数路由**：每个抽象层配套工厂函数（如 `embedding_factory.py`、`splitter_factory.py`），根据 `settings.yaml` 中的配置字段自动实例化对应实现，实现"改配置不改代码"的切换体验。
+
 
 通用的“配置驱动 + 工厂路由”结构示意见 3.3.1 节。
 
@@ -469,7 +511,7 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 
 **1. 分块策略 (Chunking Strategy)**
 
-分块是 Ingestion Pipeline 的核心环节之一，决定了文档如何被切分为适合检索的语义单元。LlamaIndex Ingestion Pipeline 的 Splitter 环节支持可插拔设计，不同分块实现只需遵循相同接口即可无缝替换。
+分块是 Ingestion Pipeline 的核心环节之一，决定了文档如何被切分为适合检索的语义单元。本项目的 Splitter 层采用可插拔设计（BaseSplitter 抽象接口 + SplitterFactory 工厂），不同分块实现只需遵循相同接口即可无缝替换。
 
 常见的分块策略包括：
 - **固定长度切分**：按字符数或 Token 数切分，简单但可能破坏语义完整性。
@@ -479,15 +521,15 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 
 本项目当前采用 **LangChain 的 `RecursiveCharacterTextSplitter`** 进行切分，该方法对 Markdown 文档的结构（标题、段落、列表、代码块）有天然的适配性，能够通过配置语义断点（Separators）实现高质量、语义完整的切块。
 
-> **当前实现说明**：目前系统使用 LangChain RecursiveCharacterTextSplitter。架构设计上预留了切换能力，如需使用 LlamaIndex 的 SentenceSplitter、SemanticSplitter 或自定义切分器，可在 Pipeline 中替换相应组件。
+> **当前实现说明**：目前系统使用 LangChain RecursiveCharacterTextSplitter。架构设计上预留了切换能力，如需切换为 SentenceSplitter、SemanticSplitter 或自定义切分器，只需实现 BaseSplitter 接口并在配置中指定即可。
 
 ---
 
 **2. 向量数据库 (Vector Store)**
 
-LlamaIndex 为向量数据库定义了统一的 `VectorStore` 抽象接口，所有主流向量库（Chroma、Qdrant、Pinecone 等）都有对应适配器，暴露相同的 `.add()`、`.query()` 等方法。我们通过 `VectorStoreFactory` 根据配置选择具体实现。
+本项目自定义了统一的 BaseVectorStore 抽象接口，暴露 .add()、.query()、.delete() 等方法。所有向量数据库后端（Chroma、Qdrant、Pinecone 等）只需实现该接口即可插拔替换，通过 VectorStoreFactory 根据配置自动选择具体实现。
 
-本项目选用 **Chroma** 作为向量数据库。相比 Qdrant、Milvus、Weaviate 等需要 Docker 容器或分布式架构支撑的方案，Chroma 采用嵌入式设计，`pip install chromadb` 即可使用，无需额外部署数据库服务，非常适合本地开发与快速原型验证。同时 LlamaIndex 提供了成熟的 `ChromaVectorStore` 适配器，与 Ingestion Pipeline 无缝集成。
+本项目选用 **Chroma** 作为向量数据库。相比 Qdrant、Milvus、Weaviate 等需要 Docker 容器或分布式架构支撑的方案，Chroma 采用嵌入式设计，`pip install chromadb` 即可使用，无需额外部署数据库服务，非常适合本地开发与快速原型验证。同时 ChromaStore 适配器（src/libs/vector_store/chroma_store.py），与 Pipeline 无缝集成。
 
 > **当前实现说明**：目前系统仅实现了 Chroma 后端。虽然架构设计上预留了工厂模式以支持未来扩展，但当前版本尚未实现其他向量数据库的适配器。
 
@@ -495,7 +537,7 @@ LlamaIndex 为向量数据库定义了统一的 `VectorStore` 抽象接口，所
 
 **3. 向量编码策略 (Embedding Strategy)**
 
-向量编码是 Ingestion Pipeline 的关键环节，决定了 Chunk 如何被转换为可检索的向量表示。LlamaIndex 提供了 `BaseEmbedding` 抽象接口，支持不同 Embedding 模型的可插拔替换。
+向量编码是 Ingestion Pipeline 的关键环节，决定了 Chunk 如何被转换为可检索的向量表示。本项目自定义了 BaseEmbedding 抽象接口（src/libs/embedding/base.py），支持不同 Embedding 模型的可插拔替换。
 
 常见的编码策略包括：
 - **纯稠密编码（Dense Only）**：仅生成语义向量，适合通用场景。
@@ -571,45 +613,58 @@ LlamaIndex 为向量数据库定义了统一的 `VectorStore` 抽象接口，所
 	
 	evaluation:
 	  backends: [ragas, custom_metrics]
+	
+	dashboard:
+	  enabled: true
+	  port: 8501
+	  traces_dir: ./logs
 	```
 
 - **切换流程**：
+
 	1. 修改 `settings.yaml` 中对应组件的 `backend` / `provider` 字段。
 	2. 确保新后端的依赖已安装、凭据已配置。
 	3. 重启服务，工厂函数自动加载新实现，无需修改业务代码。
 
-### 3.4 可观测性与追踪设计 (Observability & Tracing Design)
+### 3.4 可观测性与可视化管理平台设计 (Observability & Visual Management Platform Design)
 
-**目标：** 针对 RAG 系统常见的"黑盒"问题，设计全链路可观测的追踪体系，使每一次检索与生成过程都**透明可见**且**可量化**，为调试优化与质量评估提供数据基础。
+**目标：** 针对 RAG 系统常见的"黑盒"问题，设计全链路可观测的追踪体系与完整的可视化管理平台。覆盖 **Ingestion（摄取链路）** 与 **Query（查询链路）** 两条完整流水线的追踪记录，同时提供数据浏览、文档管理、组件概览等管理功能，使整个系统**透明可见**、**可管理**且**可量化**。
 
 #### 3.4.1 设计理念
 
-- **请求级全链路追踪 (Request-Level Tracing)**：以 `trace_id` 为核心，完整记录单次请求从 Query 输入到 Response 输出的全过程，包括各阶段的输入输出、耗时与评估分数。
+- **双链路全覆盖追踪 (Dual-Pipeline Tracing)**：
+    - **Ingestion Trace**：以 `trace_id` 为核心，记录一次摄取从文件加载到存储完成的全过程（load → split → transform → embed → upsert），包含各阶段耗时、处理的 chunk 数量、跳过/失败详情。
+    - **Query Trace**：以 `trace_id` 为核心，记录一次查询从 Query 输入到 Response 输出的全过程（query_processing → dense → sparse → fusion → rerank），包含各阶段候选数量、分数分布与耗时。
 - **透明可回溯 (Transparent & Traceable)**：每个阶段的中间状态都被记录，开发者可以清晰看到"系统为什么召回了这些文档"、"Rerank 前后排名如何变化"，从而精准定位问题。
-- **低侵入性 (Low Intrusiveness)**：追踪逻辑与业务逻辑解耦，通过装饰器或回调机制注入，避免污染核心代码。
+- **低侵入性 (Low Intrusiveness)**：追踪逻辑与业务逻辑解耦，通过 `TraceContext` 显式调用模式注入，避免污染核心代码。
 - **轻量本地化 (Lightweight & Local)**：采用结构化日志 + 本地 Dashboard 的方案，零外部依赖，开箱即用。
+- **动态组件感知 (Dynamic Component Awareness)**：Dashboard 基于 Trace 中的 `method`/`provider`/`details` 字段动态渲染，更换可插拔组件后自动适配展示内容，无需修改 Dashboard 代码。
+
 
 #### 3.4.2 追踪数据结构
 
-每次用户请求生成唯一的 `trace_id`，作为日志关联与问题排查的核心标识。一条 Trace 记录包含以下信息：
+系统定义两类 Trace 记录，分别覆盖查询与摄取两条链路：
+
+**A. Query Trace（查询追踪）**
+
+每次查询请求生成唯一的 `trace_id`，记录从 Query 输入到 Response 输出的全过程：
 
 **基础信息**：
 - `trace_id`：请求唯一标识
+- `trace_type`：`"query"`
 - `timestamp`：请求时间戳
 - `user_query`：用户原始查询
 - `collection`：检索的知识库集合
 
 **各阶段详情 (Stages)**：
 
-每个阶段记录其输入、输出、耗时与关键指标：
-
 | 阶段 | 记录内容 |
 |-----|---------|
-| **Query Processing** | 原始 Query、改写后 Query（若有）、提取的关键词、耗时 |
-| **Dense Retrieval** | 返回的 Top-N 候选及相似度分数、耗时 |
-| **Sparse Retrieval** | 返回的 Top-N 候选及 BM25 分数、耗时 |
-| **Fusion** | 融合后的统一排名、耗时 |
-| **Rerank** | 重排后的最终排名及分数、是否触发 Fallback、耗时 |
+| **Query Processing** | 原始 Query、改写后 Query（若有）、提取的关键词、method、耗时 |
+| **Dense Retrieval** | 返回的 Top-N 候选及相似度分数、provider、耗时 |
+| **Sparse Retrieval** | 返回的 Top-N 候选及 BM25 分数、method、耗时 |
+| **Fusion** | 融合后的统一排名、algorithm、耗时 |
+| **Rerank** | 重排后的最终排名及分数、backend、是否触发 Fallback、耗时 |
 
 **汇总指标**：
 - `total_latency`：端到端总耗时
@@ -617,10 +672,37 @@ LlamaIndex 为向量数据库定义了统一的 `VectorStore` 抽象接口，所
 - `error`：异常信息（若有）
 
 **评估指标 (Evaluation Metrics)**：
-
-每次请求可选计算轻量级评估分数，直接记录在 Trace 中，便于回溯分析：
 - `context_relevance`：召回文档与 Query 的相关性分数
 - `answer_faithfulness`：生成答案与召回文档的一致性分数（若有生成环节）
+
+**B. Ingestion Trace（摄取追踪）**
+
+每次文档摄取生成唯一的 `trace_id`，记录从文件加载到存储完成的全过程：
+
+**基础信息**：
+- `trace_id`：摄取唯一标识
+- `trace_type`：`"ingestion"`
+- `timestamp`：摄取开始时间
+- `source_path`：源文件路径
+- `collection`：目标集合名称
+
+**各阶段详情 (Stages)**：
+
+| 阶段 | 记录内容 |
+|-----|---------|
+| **Load** | 文件大小、解析器（method: markitdown）、提取的图片数、耗时 |
+| **Split** | splitter 类型（method）、产出 chunk 数、平均 chunk 长度、耗时 |
+| **Transform** | 各 transform 名称与处理详情（refined/enriched/captioned 数量）、LLM provider、耗时 |
+| **Embed** | embedding provider、batch 数、向量维度、dense + sparse 编码耗时 |
+| **Upsert** | 存储后端（method: chroma）、upsert 数量、BM25 索引更新、图片存储、耗时 |
+
+**汇总指标**：
+- `total_latency`：端到端总耗时
+- `total_chunks`：最终存储的 chunk 数量
+- `total_images`：处理的图片数量
+- `skipped`：跳过的文件/chunk 数（已存在、未变更等）
+- `error`：异常信息（若有）
+
 
 #### 3.4.3 技术方案：结构化日志 + 本地 Web Dashboard
 
@@ -676,15 +758,84 @@ JSON Lines 日志文件 (logs/traces.jsonl)
 - **具体实现是阶段内部的细节**：在 `record_stage()` 中通过 `method` 字段记录采用的具体方法（如 `bm25`、`hybrid`），通过 `details` 字段记录方法相关的细节数据。
 - 这样无论底层方案怎么替换，阶段结构保持稳定，Dashboard 展示逻辑无需调整。
 
-#### 3.4.5 Dashboard 功能
+#### 3.4.5 Dashboard 功能设计（六页面架构）
 
-Dashboard 以 `trace_id` 为核心，提供以下视图：
+Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供六大功能页面：
 
-- **请求列表**：按时间倒序展示历史请求，支持按 Query 关键词筛选。
-- **单请求详情页**：
-  - **耗时瀑布图**：展示各阶段的时间分布，快速定位性能瓶颈。
-  - **阶段详情展开**：点击任意阶段，查看该阶段的输入、输出与关键参数。
-  - **召回结果表**：展示 Top-K 候选文档在各阶段的排名与分数变化。
+**页面 1：系统总览 (Overview)**
+- **组件配置卡片**：读取 `Settings`，展示当前可插拔组件的配置状态：
+    - LLM：provider + model（如 `azure / gpt-4o`）
+    - Embedding：provider + model + 维度
+    - Splitter：类型 + chunk_size + overlap
+    - Reranker：backend + model（或 None）
+    - Evaluator：已启用的 backends 列表
+- **数据资产统计**：调用 `DocumentManager.get_collection_stats()` 展示各集合的文档数、chunk 数、图片数。
+- **系统健康指标**：最近一次 Ingestion/Query trace 的时间与耗时。
+
+**页面 2：数据浏览器 (Data Browser)**
+- **文档列表视图**：展示已摄入的文档（source_path、集合、chunk 数、摄入时间），支持按集合筛选与关键词搜索。
+- **Chunk 详情视图**：点击文档展开其所有 chunk，每个 chunk 显示：
+    - 原文内容（可折叠长文本）
+    - Metadata 各字段（title、summary、tags、page、image_refs 等）
+    - 关联图片预览（从 ImageStorage 读取并展示缩略图）
+- **数据来源**：通过 `ChromaStore.get_all()` 或 `get_by_metadata()` 读取 chunk 数据。
+
+**页面 3：Ingestion 管理 (Ingestion Manager)**
+- **文件选择与摄取触发**：
+    - 文件上传组件（`st.file_uploader`）或目录路径输入
+    - 选择目标集合（下拉选择或新建）
+    - 点击"开始摄取"按钮触发 `IngestionPipeline.run()`
+    - 利用 `on_progress` 回调驱动 Streamlit 进度条（`st.progress`），实时显示当前阶段与处理进度
+- **文档删除**：
+    - 在文档列表中提供"删除"按钮
+    - 调用 `DocumentManager.delete_document()` 协调跨存储删除
+    - 删除完成后刷新列表
+- **注意**：Pipeline 执行为同步阻塞操作，Streamlit 的 rerun 机制天然支持（进度条在同一 request 中更新）。
+
+**页面 4：Ingestion 追踪 (Ingestion Traces)**
+- **摄取历史列表**：按时间倒序展示 `trace_type == "ingestion"` 的历史记录，显示文件名、集合、总耗时、状态（成功/失败）。
+- **单次摄取详情**：
+    - **阶段耗时瀑布图**：横向条形图展示 load/split/transform/embed/upsert 各阶段时间分布。
+    - **处理统计**：chunk 数、图片数、跳过数、失败数。
+    - **各阶段详情展开**：点击查看 method/provider、输入输出样本。
+
+**页面 5：Query 追踪 (Query Traces)**
+- **查询历史列表**：按时间倒序展示 `trace_type == "query"` 的历史记录，支持按 Query 关键词筛选。
+- **单次查询详情**：
+    - **耗时瀑布图**：展示 query_processing/dense/sparse/fusion/rerank 各阶段时间分布。
+    - **Dense vs Sparse 对比**：并列展示两路召回结果的 Top-N 文档 ID 与分数。
+    - **Rerank 前后对比**：展示融合排名与精排后排名的变化（排名跃升/下降标记）。
+    - **最终结果表**：展示 Top-K 候选文档的标题、分数、来源。
+
+**页面 6：评估面板 (Evaluation Panel)**
+- **评估运行**：选择评估后端（Ragas / Custom / All）与 golden test set，点击运行。
+- **指标展示**：以表格和图表展示 hit_rate、mrr、faithfulness 等指标。
+- **历史趋势**：对比不同时间的评估结果，观察策略调整的效果。
+- **注意**：评估面板在 Phase H 实现，Phase G 完成后该页面显示"评估模块尚未启用"的占位提示。
+
+**Dashboard 技术架构**：
+
+```
+src/observability/dashboard/
+├── app.py                    # Streamlit 入口，页面导航注册
+├── pages/
+│   ├── overview.py           # 页面 1：系统总览
+│   ├── data_browser.py       # 页面 2：数据浏览器
+│   ├── ingestion_manager.py  # 页面 3：Ingestion 管理
+│   ├── ingestion_traces.py   # 页面 4：Ingestion 追踪
+│   ├── query_traces.py       # 页面 5：Query 追踪
+│   └── evaluation_panel.py   # 页面 6：评估面板
+└── services/
+    ├── trace_service.py      # Trace 数据读取服务（解析 traces.jsonl）
+    ├── data_service.py       # 数据浏览服务（封装 ChromaStore/ImageStorage 读取）
+    └── config_service.py     # 配置读取服务（封装 Settings 读取与展示）
+```
+
+**Dashboard 与 Trace 的数据关系**：
+- Dashboard 页面 4/5 读取 `logs/traces.jsonl`（通过 `TraceService`），按 `trace_type` 分类展示。
+- Dashboard 页面 1/2/3 直接读取存储层（通过 `DataService` 封装 ChromaStore/ImageStorage/FileIntegrity），不依赖 Trace。
+- 所有页面基于 Trace 中 `method`/`provider` 字段动态渲染标签，更换组件后自动适配。
+
 
 #### 3.4.6 配置示例
 
@@ -699,12 +850,16 @@ observability:
   
   # 追踪粒度控制
   detail_level: standard  # minimal | standard | verbose
-  
-  # Dashboard 配置
-  dashboard:
-    enabled: true
-    port: 8501  # Streamlit 默认端口
+
+# Dashboard 管理平台配置
+dashboard:
+  enabled: true
+  port: 8501                     # Streamlit 服务端口
+  traces_dir: ./logs             # Trace 日志文件目录
+  auto_refresh: true             # 是否自动刷新（轮询新 trace）
+  refresh_interval: 5            # 自动刷新间隔（秒）
 ```
+
 
 ### 3.5 多模态图片处理设计 (Multimodal Image Processing Design)
 
@@ -1295,7 +1450,8 @@ smart-knowledge-hub/
 │   │
 │   ├── ingestion/                       # Ingestion Pipeline (离线数据摄取)
 │   │   ├── __init__.py
-│   │   ├── pipeline.py                  # Pipeline 主流程编排
+│   │   ├── pipeline.py                  # Pipeline 主流程编排 (支持 on_progress 回调)
+│   │   ├── document_manager.py          # 文档生命周期管理 (list/delete/stats)
 │   │   │
 │   │   ├── chunking/                    # Chunking 模块 (文档切分)
 │   │   │   ├── __init__.py
@@ -1379,12 +1535,26 @@ smart-knowledge-hub/
 │   └── observability/                   # Observability 层 (可观测性)
 │       ├── __init__.py
 │       ├── logger.py                    # 结构化日志 (JSON Formatter)
-│       ├── dashboard/                   # Web Dashboard
+│       ├── dashboard/                   # Web Dashboard (可视化管理平台)
 │       │   ├── __init__.py
-│       │   └── app.py                   # Streamlit Dashboard 应用
+│       │   ├── app.py                   # Streamlit 入口 (页面导航注册)
+│       │   ├── pages/                   # 六大功能页面
+│       │   │   ├── overview.py          # 系统总览 (组件配置 + 数据统计)
+│       │   │   ├── data_browser.py      # 数据浏览器 (文档/Chunk/图片查看)
+│       │   │   ├── ingestion_manager.py # Ingestion 管理 (触发摄取/删除文档)
+│       │   │   ├── ingestion_traces.py  # Ingestion 追踪 (摄取历史与详情)
+│       │   │   ├── query_traces.py      # Query 追踪 (查询历史与详情)
+│       │   │   └── evaluation_panel.py  # 评估面板 (运行评估/查看指标)
+│       │   └── services/                # Dashboard 数据服务层
+│       │       ├── trace_service.py     # Trace 读取服务 (解析 traces.jsonl)
+│       │       ├── data_service.py      # 数据浏览服务 (ChromaStore/ImageStorage)
+│       │       └── config_service.py    # 配置读取服务 (Settings 展示)
 │       └── evaluation/                  # 评估模块
 │           ├── __init__.py
-│           └── eval_runner.py           # 评估执行器
+│           ├── eval_runner.py           # 评估执行器
+│           ├── ragas_evaluator.py       # Ragas 评估实现
+│           └── composite_evaluator.py   # 组合评估器 (多后端并行)
+
 │
 ├── data/                                # 数据目录
 │   ├── documents/                       # 原始文档存放
@@ -1490,7 +1660,9 @@ smart-knowledge-hub/
 
 | 模块 | 职责 | 关键技术点 |
 |-----|-----|----------|
-| `pipeline.py` | Pipeline 流程编排 | 串行执行（或分阶段可观测），异常处理，增量更新；统一使用 `core/types.py` 的数据契约 |
+| `pipeline.py` | Pipeline 流程编排 | 串行执行（或分阶段可观测），异常处理，增量更新；支持 `on_progress` 回调；统一使用 `core/types.py` 的数据契约 |
+| `document_manager.py` | 文档生命周期管理 | list/delete/stats 操作；跨 4 个存储（Chroma/BM25/ImageStorage/FileIntegrity）的协调删除；供 Dashboard 与 CLI 调用 |
+
 | `chunking/document_chunker.py` | Document→Chunks 转换 | 调用 `libs.splitter` 进行文本切分；生成稳定 Chunk ID（格式：`{doc_id}_{index:04d}_{hash}`）；继承 metadata；建立 source_ref 溯源链接 |
 | `transform/base_transform.py` | Transform 抽象 | 原子化、幂等；可独立重试；失败降级不阻塞 |
 | `transform/chunk_refiner.py` | Chunk 智能重组 | 规则去噪 + 可选 LLM 二次加工；可回退 |
@@ -1519,9 +1691,22 @@ smart-knowledge-hub/
 | 模块 | 职责 | 关键技术点 |
 |-----|-----|----------|
 | `logger.py` | 结构化日志 | JSON Formatter，JSON Lines 输出 |
-| `trace_context.py` | 请求级追踪 | trace_id，阶段耗时记录 |
-| `dashboard/app.py` | Web Dashboard | Streamlit，请求列表，耗时瀑布图 |
-| `eval_runner.py` | 评估执行 | 黄金测试集，指标计算，报告生成 |
+| `trace_context.py` | 请求级追踪 | trace_id，trace_type（query/ingestion），阶段耗时记录，`finish()` + `to_dict()` 序列化 |
+| `trace_collector.py` | 追踪收集器 | 收集 trace 并触发持久化到 JSON Lines |
+| `dashboard/app.py` | Dashboard 入口 | Streamlit 多页面应用，`st.navigation` 页面注册 |
+| `dashboard/pages/overview.py` | 系统总览 | 组件配置卡片，数据资产统计 |
+| `dashboard/pages/data_browser.py` | 数据浏览器 | 文档列表，Chunk 详情，图片预览 |
+| `dashboard/pages/ingestion_manager.py` | Ingestion 管理 | 文件上传，摄取触发（进度条），文档删除 |
+| `dashboard/pages/ingestion_traces.py` | Ingestion 追踪 | 摄取历史，阶段耗时瀑布图 |
+| `dashboard/pages/query_traces.py` | Query 追踪 | 查询历史，Dense/Sparse 对比，Rerank 变化 |
+| `dashboard/pages/evaluation_panel.py` | 评估面板 | 运行评估，指标展示，历史趋势（Phase H 实现） |
+| `dashboard/services/trace_service.py` | Trace 数据服务 | 解析 traces.jsonl，按 trace_type 分类 |
+| `dashboard/services/data_service.py` | 数据浏览服务 | 封装 ChromaStore/ImageStorage 读取 |
+| `dashboard/services/config_service.py` | 配置读取服务 | 封装 Settings 展示 |
+| `evaluation/eval_runner.py` | 评估执行 | 黄金测试集，指标计算，报告生成 |
+| `evaluation/ragas_evaluator.py` | Ragas 评估 | Faithfulness, Answer Relevancy, Context Precision |
+| `evaluation/composite_evaluator.py` | 组合评估器 | 多后端并行执行，结果汇总 |
+
 
 ### 5.4 数据流说明
 
@@ -1616,7 +1801,43 @@ smart-knowledge-hub/
 返回给 MCP Client (Copilot / Claude Desktop)
 ```
 
+#### 5.4.3 管理操作流 (Management Flow)
+
+```
+Dashboard (Streamlit UI)
+      │
+      ├─── 数据浏览 ──────────────────────────────────────────┐
+      │                                                       │
+      │    DataService                                        │
+      │    ├── ChromaStore.get_by_metadata(source=...)        │
+      │    ├── ImageStorage.list_images(collection, doc_hash) │
+      │    └── 返回文档列表 / Chunk 详情 / 图片预览            │
+      │                                                       │
+      ├─── Ingestion 管理 ────────────────────────────────────┤
+      │                                                       │
+      │    触发摄取：                                          │
+      │    ├── IngestionPipeline.run(path, collection,        │
+      │    │                         on_progress=callback)    │
+      │    └── st.progress() 实时更新进度                      │
+      │                                                       │
+      │    删除文档：                                          │
+      │    ├── DocumentManager.delete_document(source, col)   │
+      │    │   ├── ChromaStore.delete_by_metadata(source=...) │
+      │    │   ├── BM25Indexer.remove_document(source=...)    │
+      │    │   ├── ImageStorage.delete_images(col, doc_hash)  │
+      │    │   └── FileIntegrity.remove_record(file_hash)     │
+      │    └── 刷新文档列表                                    │
+      │                                                       │
+      └─── Trace 查看 ───────────────────────────────────────┘
+           │
+           TraceService
+           ├── 读取 logs/traces.jsonl
+           ├── 按 trace_type 分类 (query / ingestion)
+           └── 返回 Trace 列表与详情
+```
+
 ### 5.5 配置驱动设计
+
 
 系统通过 `config/settings.yaml` 统一配置各组件实现，支持零代码切换：
 
@@ -1668,10 +1889,18 @@ evaluation:
 observability:
   enabled: true
   log_file: ./logs/traces.jsonl
-  dashboard_port: 8501
+
+# Dashboard 管理平台配置
+dashboard:
+  enabled: true
+  port: 8501                     # Streamlit 服务端口
+  traces_dir: ./logs             # Trace 日志文件目录
+  auto_refresh: true             # 是否自动刷新（轮询新 trace）
+  refresh_interval: 5            # 自动刷新间隔（秒）
 ```
 
 ### 5.6 扩展性设计要点
+
 
 1. **新增 LLM Provider**：实现 `BaseLLM` 接口，在 `llm_factory.py` 注册，配置文件指定 `provider` 即可
 2. **新增文档格式**：实现 `BaseLoader` 接口，在 Pipeline 中注册对应文件扩展名的处理器
@@ -1700,10 +1929,14 @@ observability:
   - 目的：在线查询链路跑通，得到 Top-K chunks（含引用信息），并具备稳定回退策略。
 5. **阶段 E：MCP Server 层与 Tools 落地**
    - 目的：按 MCP 标准暴露 tools，让 Copilot/Claude 可直接调用查询能力。
-6. **阶段 F：Observability + Evaluation 闭环**
-   - 目的：把“可调试、可量化”落地：trace.jsonl、Dashboard、golden set 回归。
-7. **阶段 G：端到端验收与文档收口**
-   - 目的：补齐 E2E 与运行脚本；确保“开箱即用 + 可复现实验”。
+6. **阶段 F：Trace 基础设施与打点**
+   - 目的：增强 TraceContext，实现结构化日志持久化，在 Ingestion + Query 双链路打点，添加 Pipeline 进度回调。
+7. **阶段 G：可视化管理平台 Dashboard**
+   - 目的：搭建 Streamlit 六页面管理平台（系统总览 / 数据浏览 / Ingestion 管理 / Ingestion 追踪 / Query 追踪 / 评估占位），实现 DocumentManager 跨存储协调。
+8. **阶段 H：评估体系**
+   - 目的：实现 RagasEvaluator + CompositeEvaluator + EvalRunner，启用评估面板页面，建立 golden test set 回归基线。
+9. **阶段 I：端到端验收与文档收口**
+   - 目的：补齐 E2E 测试（MCP Client 模拟 + Dashboard 冒烟），完善 README，全链路验收，确保“开箱即用 + 可复现”。
 
 
 ---
@@ -1786,24 +2019,46 @@ observability:
 | E5 | get_document_summary Tool | [x] | 2026-02-04 | GetDocumentSummaryTool+DocumentSummary+错误处理+71单元测试 |
 | E6 | 多模态返回组装（Text + Image） | [x] | 2026-02-04 | MultimodalAssembler+base64编码+MIME检测+ResponseBuilder集成+54单元测试+4集成测试 |
 
-#### 阶段 F：Observability + Evaluation
+#### 阶段 F：Trace 基础设施与打点
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| F1 | TraceContext 增强（finish + 耗时统计） | [ ] | - | |
+| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [ ] | - | |
 | F2 | 结构化日志 logger（JSON Lines） | [ ] | - | |
-| F3 | 在关键路径打点（Query 与 Ingestion） | [ ] | - | |
-| F4 | Dashboard MVP（Streamlit） | [ ] | - | |
-| F5 | Evaluation Runner + Golden Test Set 回归 | [ ] | - | |
+| F3 | 在 Query 链路打点 | [ ] | - | |
+| F4 | 在 Ingestion 链路打点 | [ ] | - | |
+| F5 | Pipeline 进度回调 (on_progress) | [ ] | - | |
 
-#### 阶段 G：端到端验收与文档收口
+#### 阶段 G：可视化管理平台 Dashboard
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| G1 | E2E：MCP Client 侧调用模拟 | [ ] | - | |
-| G2 | E2E：Recall 回归（黄金集） | [ ] | - | |
-| G3 | 完善 README（运行说明 + MCP 配置示例） | [ ] | - | |
-| G4 | 清理接口一致性（契约测试补齐） | [ ] | - | |
+| G1 | Dashboard 基础架构与系统总览页 | [ ] | - | |
+| G2 | DocumentManager 实现 | [ ] | - | |
+| G3 | 数据浏览器页面 | [ ] | - | |
+| G4 | Ingestion 管理页面 | [ ] | - | |
+| G5 | Ingestion 追踪页面 | [ ] | - | |
+| G6 | Query 追踪页面 | [ ] | - | |
+
+#### 阶段 H：评估体系
+
+| 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
+|---------|---------|------|---------|------|
+| H1 | RagasEvaluator 实现 | [ ] | - | |
+| H2 | CompositeEvaluator 实现 | [ ] | - | |
+| H3 | EvalRunner + Golden Test Set | [ ] | - | |
+| H4 | 评估面板页面 | [ ] | - | |
+| H5 | Recall 回归测试（E2E） | [ ] | - | |
+
+#### 阶段 I：端到端验收与文档收口
+
+| 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
+|---------|---------|------|---------|------|
+| I1 | E2E：MCP Client 侧调用模拟 | [ ] | - | |
+| I2 | E2E：Dashboard 冒烟测试 | [ ] | - | |
+| I3 | 完善 README（运行说明 + MCP + Dashboard） | [ ] | - | |
+| I4 | 清理接口一致性（契约测试补齐） | [ ] | - | |
+| I5 | 全链路 E2E 验收 | [ ] | - | |
 
 ---
 
@@ -1817,8 +2072,10 @@ observability:
 | 阶段 D | 7 | 7 | 100% |
 | 阶段 E | 6 | 6 | 100% |
 | 阶段 F | 5 | 0 | 0% |
-| 阶段 G | 4 | 0 | 0% |
-| **总计** | **56** | **47** | **84%** |
+| 阶段 G | 6 | 0 | 0% |
+| 阶段 H | 5 | 0 | 0% |
+| 阶段 I | 5 | 0 | 0% |
+| **总计** | **68** | **47** | **69%** |
 
 
 ---
@@ -2603,24 +2860,26 @@ observability:
 
 ---
 
-## 阶段 F：Observability + Evaluation（目标：可追踪 + 可回归）
+## 阶段 F：Trace 基础设施与打点（目标：Ingestion + Query 双链路可追踪）
 
-### F1：TraceContext 增强（finish + 耗时统计）
-- **目标**：增强已有的 `TraceContext`（C5 已实现基础版），添加 `finish()` 方法、耗时统计、metrics 汇总功能。
+### F1：TraceContext 增强（finish + 耗时统计 + trace_type）
+- **目标**：增强已有的 `TraceContext`（C5 已实现基础版），添加 `finish()` 方法、耗时统计、`trace_type` 字段（区分 query/ingestion）、`to_dict()` 序列化功能。
 - **修改文件**：
-  - `src/core/trace/trace_context.py`（增强：添加 finish/elapsed_ms/to_dict）
+  - `src/core/trace/trace_context.py`（增强：添加 trace_type/finish/elapsed_ms/to_dict）
   - `src/core/trace/trace_collector.py`（新增：收集并持久化 trace）
-  - `tests/unit/test_trace_context.py`（补充 finish 相关测试）
+  - `tests/unit/test_trace_context.py`（补充 finish/to_dict 相关测试）
 - **实现类/函数**：
+  - `TraceContext.__init__(trace_type: str = "query")`：支持 `"query"` 或 `"ingestion"` 类型
   - `TraceContext.finish() -> None`：标记 trace 结束，计算总耗时
   - `TraceContext.elapsed_ms(stage_name?) -> float`：获取指定阶段或总耗时
-  - `TraceContext.to_dict() -> dict`：序列化为可 JSON 输出的字典
+  - `TraceContext.to_dict() -> dict`：序列化为可 JSON 输出的字典（含 trace_type）
   - `TraceCollector.collect(trace: TraceContext) -> None`：收集 trace 并触发持久化
 - **验收标准**：
   - `record_stage` 追加阶段数据（已有）
-  - `finish()` 后 `to_dict()` 输出包含 `trace_id`、`started_at`、`finished_at`、`total_elapsed_ms`、`stages`
+  - `finish()` 后 `to_dict()` 输出包含 `trace_id`、`trace_type`、`started_at`、`finished_at`、`total_elapsed_ms`、`stages`
   - 输出 dict 可直接 `json.dumps()` 序列化
 - **测试方法**：`pytest -q tests/unit/test_trace_context.py`。
+
 
 ### F2：结构化日志 logger（JSON Lines）
 - **目标**：增强 `observability/logger.py`，支持 JSON Lines 格式输出，并实现 trace 持久化到 `logs/traces.jsonl`。
@@ -2632,42 +2891,175 @@ observability:
   - `get_trace_logger() -> logging.Logger`：获取配置了 JSON Lines 输出的 logger
   - `write_trace(trace_dict: dict) -> None`：将 trace 字典写入 `logs/traces.jsonl`
 - **与 F1 的分工**：
-  - F1 负责 TraceContext 的数据结构和 `finish()` 方法
+  - F1 负责 TraceContext 的数据结构（含 `trace_type`）和 `finish()` 方法
   - F2 负责将 `trace.to_dict()` 的结果持久化到文件
-- **验收标准**：写入一条 trace 后文件新增一行合法 JSON。
+- **验收标准**：写入一条 trace 后文件新增一行合法 JSON，包含 `trace_type` 字段。
 - **测试方法**：`pytest -q tests/unit/test_jsonl_logger.py`。
 
-### F3：在关键路径打点（Query 与 Ingestion）
-- **目标**：在 Pipeline 与 HybridSearch/Rerank 中注入 TraceContext，利用 B 阶段抽象接口中预留的 `trace` 参数，显式调用 `trace.record_stage()` 记录各阶段数据。
+### F3：在 Query 链路打点
+- **目标**：在 HybridSearch/Rerank 中注入 TraceContext（`trace_type="query"`），利用 B 阶段抽象接口中预留的 `trace` 参数，显式调用 `trace.record_stage()` 记录各阶段数据。
 - **前置依赖**：D5（HybridSearch）、D6（Reranker）、F1（TraceContext 增强）、F2（结构化日志）
 - **修改文件**：
-  - `src/ingestion/pipeline.py`（增加 trace 传递）
-  - `src/core/query_engine/hybrid_search.py`（增加 trace 记录）
-  - `src/core/query_engine/reranker.py`（增加 trace 记录）
-  - `tests/integration/test_hybrid_search.py`（断言 trace 中存在阶段）
-- **说明**：B 阶段的 `BaseEmbedding`、`BaseSplitter`、`BaseVectorStore`、`BaseReranker` 接口已预留 `trace: TraceContext | None = None` 参数，本任务负责在调用这些组件时传入实际的 TraceContext 实例。
+  - `src/core/query_engine/hybrid_search.py`（增加 trace 记录：dense/sparse/fusion 阶段）
+  - `src/core/query_engine/reranker.py`（增加 trace 记录：rerank 阶段）
+  - `tests/integration/test_hybrid_search.py`（断言 trace 中存在各阶段）
+- **说明**：B 阶段的接口已预留 `trace: TraceContext | None = None` 参数，本任务负责在调用时传入实际的 TraceContext 实例，并在各阶段记录 `method`/`provider`/`details` 字段。
 - **验收标准**：
   - 一次查询生成 trace，包含 `query_processing`/`dense_retrieval`/`sparse_retrieval`/`fusion`/`rerank` 阶段
-  - 一次摄取生成 trace，包含 `load`/`split`/`transform`/`embed`/`upsert` 阶段
-  - 每个阶段记录 `elapsed_ms` 耗时字段
+  - 每个阶段记录 `elapsed_ms` 耗时字段和 `method` 字段
+  - `trace.to_dict()` 中 `trace_type == "query"`
 - **测试方法**：`pytest -q tests/integration/test_hybrid_search.py`。
 
-### F4：Dashboard MVP（Streamlit）
-- **目标**：实现 `dashboard/app.py`：读取 traces.jsonl，展示请求列表与单条详情（最小可用）。
+### F4：在 Ingestion 链路打点
+- **目标**：在 IngestionPipeline 中注入 TraceContext（`trace_type="ingestion"`），记录各摄取阶段的处理数据。
+- **前置依赖**：C5（Pipeline）、F1（TraceContext 增强）、F2（结构化日志）
 - **修改文件**：
-  - `src/observability/dashboard/app.py`
-  - `scripts/start_dashboard.py`
-- **验收标准**：本地可启动并看到列表（手动验收）。
-- **测试方法**：手动运行 `python scripts/start_dashboard.py`（或 `streamlit run ...`）。
+  - `src/ingestion/pipeline.py`（增加 trace 传递：load/split/transform/embed/upsert 阶段）
+  - `tests/integration/test_ingestion_pipeline.py`（断言 trace 中存在各阶段）
+- **验收标准**：
+  - 一次摄取生成 trace，包含 `load`/`split`/`transform`/`embed`/`upsert` 阶段
+  - 每个阶段记录 `elapsed_ms`、`method`（如 markitdown/recursive/chroma）和处理详情
+  - `trace.to_dict()` 中 `trace_type == "ingestion"`
+- **测试方法**：`pytest -q tests/integration/test_ingestion_pipeline.py`。
 
-### F5：Evaluation Runner + Golden Test Set 回归
-- **目标**：实现 `eval_runner.py`：读取 `tests/fixtures/golden_test_set.json`，跑 retrieval 并产出 metrics。
-- **前置依赖**：D5（HybridSearch）、F1-F3（Trace 体系）
+### F5：Pipeline 进度回调 (on_progress)
+- **目标**：在 `IngestionPipeline.run()` 方法中新增可选 `on_progress` 回调参数，支持外部实时获取处理进度。
+- **前置依赖**：F4（Ingestion 打点）
 - **修改文件**：
-  - `tests/fixtures/golden_test_set.json`（新增：黄金测试集，至少包含 10 条 query-answer-source 三元组）
-  - `src/observability/evaluation/eval_runner.py`
-  - `scripts/evaluate.py`
-  - `tests/integration/test_hybrid_search.py`（可增加黄金集 smoke）
+  - `src/ingestion/pipeline.py`（在各阶段调用 `on_progress(stage_name, current, total)`）
+  - `tests/unit/test_pipeline_progress.py`（新增：验证回调被正确调用）
+- **实现要点**：
+  - 回调签名：`on_progress(stage_name: str, current: int, total: int)`
+  - `on_progress` 为 `None` 时完全不影响现有行为
+  - 各阶段在处理每个 batch 或完成时触发回调
+- **验收标准**：Pipeline 运行时传入 mock 回调，断言各阶段均被调用且参数正确。
+- **测试方法**：`pytest -q tests/unit/test_pipeline_progress.py`。
+
+---
+
+## 阶段 G：可视化管理平台 Dashboard（目标：六页面完整可视化管理）
+
+### G1：Dashboard 基础架构与系统总览页
+- **目标**：搭建 Streamlit 多页面应用框架，实现系统总览页面（展示组件配置与数据统计）。
+- **前置依赖**：F1-F2（Trace 基础设施）
+- **修改文件**：
+  - `src/observability/dashboard/app.py`（重写：多页面导航架构）
+  - `src/observability/dashboard/pages/overview.py`（新增：系统总览页面）
+  - `src/observability/dashboard/services/config_service.py`（新增：配置读取服务）
+  - `scripts/start_dashboard.py`（新增：Dashboard 启动脚本）
+- **实现要点**：
+  - `app.py` 使用 `st.navigation()` 注册六个页面（未完成的页面显示占位提示）
+  - Overview 页面：读取 `Settings` 展示组件卡片，调用 `ChromaStore.get_collection_stats()` 展示数据统计
+  - `ConfigService`：封装 Settings 读取，格式化组件配置信息
+- **验收标准**：`streamlit run src/observability/dashboard/app.py` 可启动，总览页展示当前配置信息。
+- **测试方法**：手动运行 `python scripts/start_dashboard.py` 并验证页面渲染。
+
+### G2：DocumentManager 实现
+- **目标**：实现 `src/ingestion/document_manager.py`：跨存储的文档生命周期管理（list/delete/stats）。
+- **前置依赖**：C5（Pipeline + 各存储模块已就绪）
+- **修改文件**：
+  - `src/ingestion/document_manager.py`（新增）
+  - `src/libs/vector_store/chroma_store.py`（增强：添加 `delete_by_metadata`）
+  - `src/ingestion/storage/bm25_indexer.py`（增强：添加 `remove_document`）
+  - `src/libs/loader/file_integrity.py`（增强：添加 `remove_record` + `list_processed`）
+  - `tests/unit/test_document_manager.py`（新增）
+- **实现类/函数**：
+  - `DocumentManager.__init__(chroma_store, bm25_indexer, image_storage, file_integrity)`
+  - `DocumentManager.list_documents(collection?) -> List[DocumentInfo]`
+  - `DocumentManager.get_document_detail(doc_id) -> DocumentDetail`
+  - `DocumentManager.delete_document(source_path, collection) -> DeleteResult`
+  - `DocumentManager.get_collection_stats(collection?) -> CollectionStats`
+- **验收标准**：
+  - `list_documents` 返回已摄入文档列表（source、chunk 数、图片数）
+  - `delete_document` 协调删除 Chroma + BM25 + ImageStorage + FileIntegrity 四个存储
+  - 删除后再次 list 不包含已删除文档
+- **测试方法**：`pytest -q tests/unit/test_document_manager.py`。
+
+### G3：数据浏览器页面
+- **目标**：实现 Dashboard 数据浏览器页面（查看文档列表、Chunk 详情、图片预览）。
+- **前置依赖**：G1（Dashboard 架构）、G2（DocumentManager）
+- **修改文件**：
+  - `src/observability/dashboard/pages/data_browser.py`（新增）
+  - `src/observability/dashboard/services/data_service.py`（新增：封装 ChromaStore/ImageStorage 读取）
+- **实现要点**：
+  - 文档列表视图：展示 source_path、集合、chunk 数、摄入时间；支持集合筛选
+  - Chunk 详情视图：点击文档展开所有 chunk，显示内容（可折叠）、metadata 字段、关联图片
+  - `DataService`：封装 `ChromaStore.get_by_metadata()` 和 `ImageStorage.list_images()` 调用
+- **验收标准**：可在 Dashboard 中浏览已摄入的文档和 chunk 详情。
+- **测试方法**：手动验证（先 ingest 样例数据，再在 Dashboard 浏览）。
+
+### G4：Ingestion 管理页面
+- **目标**：实现 Dashboard Ingestion 管理页面（文件上传触发摄取、进度展示、文档删除）。
+- **前置依赖**：G2（DocumentManager）、G3（DataService）、F5（on_progress 回调）
+- **修改文件**：
+  - `src/observability/dashboard/pages/ingestion_manager.py`（新增）
+- **实现要点**：
+  - 文件上传：`st.file_uploader` 选择文件 + 集合选择
+  - 摄取触发：调用 `IngestionPipeline.run(on_progress=...)` + `st.progress()` 实时进度
+  - 文档删除：在文档列表中提供删除按钮，调用 `DocumentManager.delete_document()`
+- **验收标准**：可在 Dashboard 中上传文件触发摄取、看到实时进度条、删除已有文档。
+- **测试方法**：手动验证（上传 PDF → 观察进度 → 删除 → 确认已移除）。
+
+### G5：Ingestion 追踪页面
+- **目标**：实现 Dashboard Ingestion 追踪页面（摄取历史列表、阶段耗时瀑布图）。
+- **前置依赖**：F4（Ingestion 打点）、G1（Dashboard 架构）
+- **修改文件**：
+  - `src/observability/dashboard/pages/ingestion_traces.py`（新增）
+  - `src/observability/dashboard/services/trace_service.py`（新增：解析 traces.jsonl）
+- **实现要点**：
+  - 历史列表：按时间倒序展示 `trace_type == "ingestion"` 记录
+  - 详情页：横向条形图展示 load/split/transform/embed/upsert 耗时分布
+  - `TraceService`：读取 `logs/traces.jsonl`，解析为 Trace 对象列表
+- **验收标准**：执行 ingest 后，Dashboard 显示对应的追踪记录与耗时瀑布图。
+- **测试方法**：手动验证（先 ingest → 打开 Dashboard → 查看追踪）。
+
+### G6：Query 追踪页面
+- **目标**：实现 Dashboard Query 追踪页面（查询历史、Dense/Sparse 对比、Rerank 变化）。
+- **前置依赖**：F3（Query 打点）、G1（Dashboard 架构）、G5（TraceService 已实现）
+- **修改文件**：
+  - `src/observability/dashboard/pages/query_traces.py`（新增）
+- **实现要点**：
+  - 历史列表：按时间倒序展示 `trace_type == "query"` 记录，支持按 Query 关键词搜索
+  - 详情页：耗时瀑布图 + Dense vs Sparse 并列对比 + Rerank 前后排名变化
+- **验收标准**：执行 query 后，Dashboard 显示查询追踪详情与各阶段对比。
+- **测试方法**：手动验证（先 query → 打开 Dashboard → 查看追踪）。
+
+---
+
+## 阶段 H：评估体系（目标：可插拔评估 + 可量化回归）
+
+### H1：RagasEvaluator 实现
+- **目标**：实现 `ragas_evaluator.py`：封装 Ragas 框架，实现 `BaseEvaluator` 接口。
+- **修改文件**：
+  - `src/observability/evaluation/ragas_evaluator.py`（新增）
+  - `src/libs/evaluator/evaluator_factory.py`（注册 ragas provider）
+  - `tests/unit/test_ragas_evaluator.py`（新增）
+- **实现类/函数**：
+  - `RagasEvaluator(BaseEvaluator)`：实现 `evaluate()` 方法
+  - 支持指标：Faithfulness, Answer Relevancy, Context Precision
+  - 优雅降级：Ragas 未安装时抛出明确的 `ImportError` 提示
+- **验收标准**：mock LLM 环境下，`evaluate()` 返回包含 faithfulness/answer_relevancy 的 metrics 字典。
+- **测试方法**：`pytest -q tests/unit/test_ragas_evaluator.py`。
+
+### H2：CompositeEvaluator 实现
+- **目标**：实现 `composite_evaluator.py`：组合多个 Evaluator 并行执行，汇总结果。
+- **修改文件**：
+  - `src/observability/evaluation/composite_evaluator.py`（新增）
+  - `tests/unit/test_composite_evaluator.py`（新增）
+- **实现类/函数**：
+  - `CompositeEvaluator.__init__(evaluators: List[BaseEvaluator])`
+  - `CompositeEvaluator.evaluate() -> dict`：并行执行所有 evaluator，合并 metrics
+  - 配置驱动：`evaluation.backends: [ragas, custom]` → 工厂自动组合
+- **验收标准**：配置两个 evaluator 时，返回的 metrics 包含两者的指标。
+- **测试方法**：`pytest -q tests/unit/test_composite_evaluator.py`。
+
+### H3：EvalRunner + Golden Test Set
+- **目标**：实现 `eval_runner.py`：读取 `tests/fixtures/golden_test_set.json`，跑 retrieval 并产出 metrics。
+- **前置依赖**：D5（HybridSearch）、H1-H2（评估器）
+- **修改文件**：
+  - `src/observability/evaluation/eval_runner.py`（新增）
+  - `tests/fixtures/golden_test_set.json`（新增：黄金测试集）
+  - `scripts/evaluate.py`（新增：评估运行脚本）
 - **实现类/函数**：
   - `EvalRunner.__init__(settings, hybrid_search, evaluator)`
   - `EvalRunner.run(test_set_path) -> EvalReport`：运行评估并返回报告
@@ -2684,51 +3076,82 @@ observability:
     ]
   }
   ```
-- **验收标准**：evaluate 脚本可运行，输出 metrics（至少 custom 指标）。
-- **测试方法**：`pytest -q tests/integration/test_hybrid_search.py` 或运行 `python scripts/evaluate.py`。
+- **验收标准**：`python scripts/evaluate.py` 可运行，输出 metrics。
+- **测试方法**：`pytest -q tests/integration/test_hybrid_search.py` 或 `python scripts/evaluate.py`。
+
+### H4：评估面板页面
+- **目标**：实现 Dashboard 评估面板页面（运行评估、查看指标、历史对比）。
+- **前置依赖**：H3（EvalRunner）、G1（Dashboard 架构）
+- **修改文件**：
+  - `src/observability/dashboard/pages/evaluation_panel.py`（实现：替换占位提示）
+- **实现要点**：
+  - 选择评估后端与 golden test set
+  - 点击运行，展示评估结果（hit_rate、mrr、各 query 明细）
+  - 可选：历史评估结果对比图
+- **验收标准**：可在 Dashboard 中运行评估并查看指标。
+- **测试方法**：手动验证。
+
+### H5：Recall 回归测试（E2E）
+- **目标**：实现 `tests/e2e/test_recall.py`：基于 golden set 做最小召回阈值（例如 hit@k）。
+- **前置依赖**：H3（EvalRunner + golden_test_set）
+- **修改文件**：
+  - `tests/e2e/test_recall.py`（新增）
+  - `tests/fixtures/golden_test_set.json`（补齐若干条）
+- **验收标准**：hit@k 达到阈值（阈值写死在测试里，便于回归）。
+- **测试方法**：`pytest -q tests/e2e/test_recall.py`。
 
 ---
 
-## 阶段 G：端到端验收与文档收口（目标：开箱即用的“可复现”工程）
+## 阶段 I：端到端验收与文档收口（目标：开箱即用的"可复现"工程）
 
-### G1：E2E：MCP Client 侧调用模拟
+### I1：E2E：MCP Client 侧调用模拟
 - **目标**：实现 `tests/e2e/test_mcp_client.py`：以子进程启动 server，模拟 tools/list + tools/call。
 - **修改文件**：
   - `tests/e2e/test_mcp_client.py`
 - **验收标准**：完整走通 query_knowledge_hub 并返回 citations。
 - **测试方法**：`pytest -q tests/e2e/test_mcp_client.py`。
 
-### G2：E2E：Recall 回归（黄金集）
-- **目标**：实现 `tests/e2e/test_recall.py`：基于 golden set 做最小召回阈值（例如 hit@k）。
+### I2：E2E：Dashboard 冒烟测试
+- **目标**：验证 Dashboard 各页面在有数据时可正常渲染、无 Python 异常。
 - **修改文件**：
-  - `tests/e2e/test_recall.py`
-  - `tests/fixtures/golden_test_set.json`（补齐若干条）
-- **验收标准**：hit@k 达到阈值（阈值写死在测试里，便于回归）。
-- **测试方法**：`pytest -q tests/e2e/test_recall.py`。
+  - `tests/e2e/test_dashboard_smoke.py`（新增）
+- **实现要点**：
+  - 使用 Streamlit 的 `AppTest` 框架进行自动化冒烟测试
+  - 验证 6 个页面均可加载、不抛异常
+- **验收标准**：所有页面冒烟测试通过。
+- **测试方法**：`pytest -q tests/e2e/test_dashboard_smoke.py`。
 
-### G3：完善 README（运行说明 + 测试说明 + MCP 配置示例）
+### I3：完善 README（运行说明 + 测试说明 + MCP 配置 + Dashboard 使用）
 - **目标**：让新用户能在 10 分钟内跑通 ingest + query + dashboard + tests，并能在 Copilot/Claude 中使用。
 - **修改文件**：
   - `README.md`
 - **验收标准**：README 包含以下章节：
   - **快速开始**：安装依赖、配置 API Key、运行首次摄取
   - **配置说明**：`settings.yaml` 各字段含义
-  - **MCP 配置示例**：
-    - GitHub Copilot（VS Code）：`mcp.json` 配置示例
-    - Claude Desktop：`claude_desktop_config.json` 配置示例
+  - **MCP 配置示例**：GitHub Copilot `mcp.json` 与 Claude Desktop `claude_desktop_config.json`
+  - **Dashboard 使用指南**：启动命令、各页面功能说明、截图示例
   - **运行测试**：单元测试、集成测试、E2E 测试命令
-  - **启动 Dashboard**：Streamlit 启动命令与访问地址
   - **常见问题**：API Key 配置、依赖安装、连接问题排查
-- **测试方法**：按 README 手动走一遍（并在 PR/自测中记录）。
+- **测试方法**：按 README 手动走一遍。
 
-### G4：清理接口一致性（契约测试补齐）
-- **目标**：为关键抽象（VectorStore / Reranker / Evaluator）补齐契约测试，防止接口漂移。
+### I4：清理接口一致性（契约测试补齐）
+- **目标**：为关键抽象（VectorStore / Reranker / Evaluator / DocumentManager）补齐契约测试。
 - **修改文件**：
-  - `tests/unit/test_vector_store_contract.py`（补齐边界）
+  - `tests/unit/test_vector_store_contract.py`（补齐 delete_by_metadata 边界）
   - `tests/unit/test_reranker_factory.py`（补齐边界）
   - `tests/unit/test_custom_evaluator.py`（补齐边界）
 - **验收标准**：`pytest -q` 全绿，且 contract tests 覆盖主要输入输出形状。
 - **测试方法**：`pytest -q`。
+
+### I5：全链路 E2E 验收
+- **目标**：执行完整的端到端验收流程：ingest → query via MCP → Dashboard 可视化 → evaluate。
+- **修改文件**：无新文件，验收已有功能
+- **验收标准**：
+  - `python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection test` 成功
+  - `python scripts/query.py --query "测试查询" --verbose` 返回结果
+  - Dashboard 可展示摄取与查询追踪
+  - `python scripts/evaluate.py` 输出评估指标
+- **测试方法**：手动全链路走通 + `pytest -q` 全量测试。
 
 ---
 
@@ -2737,7 +3160,9 @@ observability:
 - **M1（完成阶段 A+B）**：工程可测 + 可插拔抽象层就绪，后续实现可并行推进。
 - **M2（完成阶段 C）**：离线摄取链路可用，能构建本地索引。
 - **M3（完成阶段 D+E）**：在线查询 + MCP tools 可用，可在 Copilot/Claude 中调用。
-- **M4（完成阶段 F+G）**：可观测 + 可回归 + 文档完善，形成“面试/教学/演示”可复现项目。
+- **M4（完成阶段 F）**：Ingestion + Query 双链路可追踪，JSON Lines 持久化。
+- **M5（完成阶段 G）**：六页面可视化管理平台就绪（评估面板为占位），数据可浏览、可管理、链路可追踪。
+- **M6（完成阶段 H+I）**：评估体系完整 + E2E 验收通过 + 文档完善，形成"面试/教学/演示"可复现项目。
 
 
 
