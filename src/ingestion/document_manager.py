@@ -224,7 +224,7 @@ class DocumentManager:
         # 1. ChromaDB – delete chunks matching source_hash
         try:
             count = self.chroma.delete_by_metadata(
-                {"source_hash": source_hash}
+                {"doc_hash": source_hash}
             )
             result.chunks_deleted = count
         except Exception as e:
@@ -297,7 +297,7 @@ class DocumentManager:
         """Count chunks in Chroma that belong to *source_hash*."""
         try:
             results = self.chroma.collection.get(
-                where={"source_hash": source_hash}, include=[]
+                where={"doc_hash": source_hash}, include=[]
             )
             return len(results.get("ids", []))
         except Exception:
@@ -307,7 +307,7 @@ class DocumentManager:
         """Return chunk IDs from Chroma matching *source_hash*."""
         try:
             results = self.chroma.collection.get(
-                where={"source_hash": source_hash}, include=[]
+                where={"doc_hash": source_hash}, include=[]
             )
             return results.get("ids", [])
         except Exception:

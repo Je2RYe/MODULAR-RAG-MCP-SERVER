@@ -25,14 +25,27 @@ class DataService:
         self._manager: Any = None
         self._chroma: Any = None
         self._images: Any = None
+        self._current_collection: str = ""
 
     # ------------------------------------------------------------------
     # Lazy initialisation
     # ------------------------------------------------------------------
 
-    def _ensure_stores(self) -> None:
-        """Create storage objects on first use."""
-        if self._manager is not None:
+    def _ensure_stores(self, collection: Optional[str] = None) -> None:
+        """Create storage objects on first use.
+
+        Args:
+            collection: Optional collection name. The ChromaStore will be
+                        re-created if the requested collection differs from
+                        the currently loaded one.
+        """
+        target_collection = collection or "default"
+
+        # Re-create chroma if collection changed
+        if (
+            self._manager is not None
+            and self._current_collection == target_collection
+        ):
             return
 
         from src.core.settings import load_settings
@@ -44,23 +57,22 @@ class DataService:
 
         settings = load_settings("config/settings.yaml")
 
-        chroma = VectorStoreFactory.create(settings)
-        bm25 = BM25Indexer(
-            index_dir=str(
-                Path(settings.get("data_dir", "data/db/bm25"))
-            )
+        chroma = VectorStoreFactory.create(
+            settings, collection_name=target_collection
         )
-        images = ImageStorage()
+        bm25 = BM25Indexer(index_dir=f"data/db/bm25/{target_collection}")
+        images = ImageStorage(
+            db_path="data/db/image_index.db",
+            images_root="data/images",
+        )
         integrity = SQLiteIntegrityChecker(
-            db_path=str(
-                Path(settings.get("data_dir", "data/db"))
-                / "file_integrity.db"
-            )
+            db_path="data/db/ingestion_history.db"
         )
 
         self._chroma = chroma
         self._images = images
         self._manager = DocumentManager(chroma, bm25, images, integrity)
+        self._current_collection = target_collection
 
     # ------------------------------------------------------------------
     # Public API
@@ -74,15 +86,17 @@ class DataService:
         Each dict has keys: source_path, source_hash, collection,
         chunk_count, image_count, processed_at.
         """
-        self._ensure_stores()
+        self._ensure_stores(collection)
         from dataclasses import asdict
 
         docs = self._manager.list_documents(collection)
         return [asdict(d) for d in docs]
 
-    def get_document_detail(self, doc_id: str) -> Optional[Dict[str, Any]]:
+    def get_document_detail(
+        self, doc_id: str, collection: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Return document detail as a plain dict, or None."""
-        self._ensure_stores()
+        self._ensure_stores(collection)
         from dataclasses import asdict
 
         detail = self._manager.get_document_detail(doc_id)
@@ -90,15 +104,17 @@ class DataService:
             return None
         return asdict(detail)
 
-    def get_chunks(self, source_hash: str) -> List[Dict[str, Any]]:
+    def get_chunks(
+        self, source_hash: str, collection: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Return chunk records from ChromaDB matching *source_hash*.
 
         Each dict has keys: id, text, metadata.
         """
-        self._ensure_stores()
+        self._ensure_stores(collection)
         try:
             results = self._chroma.collection.get(
-                where={"source_hash": source_hash},
+                where={"doc_hash": source_hash},
                 include=["documents", "metadatas"],
             )
             chunks: List[Dict[str, Any]] = []
@@ -118,9 +134,11 @@ class DataService:
             logger.warning("Failed to get chunks for %s: %s", source_hash, exc)
             return []
 
-    def get_images(self, source_hash: str) -> List[Dict[str, Any]]:
+    def get_images(
+        self, source_hash: str, collection: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Return image records for a document."""
-        self._ensure_stores()
+        self._ensure_stores(collection)
         try:
             return self._images.list_images(doc_hash=source_hash)
         except Exception as exc:
@@ -131,7 +149,7 @@ class DataService:
         self, collection: Optional[str] = None
     ) -> Dict[str, Any]:
         """Return aggregate stats as a plain dict."""
-        self._ensure_stores()
+        self._ensure_stores(collection)
         from dataclasses import asdict
 
         stats = self._manager.get_collection_stats(collection)

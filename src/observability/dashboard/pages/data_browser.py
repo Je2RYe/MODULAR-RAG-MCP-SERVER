@@ -1,10 +1,10 @@
 """Data Browser page – browse ingested documents, chunks, and images.
 
 Layout:
-1. Collection filter (sidebar / top)
-2. Document list table (source_path, collection, chunk_count, image_count, processed_at)
-3. Chunk detail expander (text, metadata)
-4. Image preview (if any)
+1. Collection selector (sidebar)
+2. Document list with chunk counts
+3. Expandable document detail → chunk cards with text + metadata
+4. Image preview gallery
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ def render() -> None:
         st.error(f"Failed to initialise DataService: {exc}")
         return
 
-    # ── Collection filter ──────────────────────────────────────────
+    # ── Collection selector ────────────────────────────────────────
     collection = st.text_input(
-        "Filter by collection (leave blank for all)",
-        value="",
+        "Collection name (leave blank = `default`)",
+        value="default",
         key="db_collection_filter",
     )
     coll_arg = collection.strip() if collection.strip() else None
@@ -48,37 +48,63 @@ def render() -> None:
     st.subheader(f"📄 Documents ({len(docs)})")
 
     for idx, doc in enumerate(docs):
-        label = f"{doc['source_path']}  |  chunks: {doc['chunk_count']}  |  images: {doc['image_count']}"
-        with st.expander(label, expanded=False):
-            st.markdown(
-                f"- **Source hash:** `{doc['source_hash']}`\n"
-                f"- **Collection:** `{doc.get('collection', '—')}`\n"
-                f"- **Processed at:** {doc.get('processed_at', '—')}"
+        source_name = Path(doc["source_path"]).name
+        label = f"📑 {source_name}  —  {doc['chunk_count']} chunks · {doc['image_count']} images"
+        with st.expander(label, expanded=(len(docs) == 1)):
+            # ── Document metadata ──────────────────────────────────
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("Chunks", doc["chunk_count"])
+            col_b.metric("Images", doc["image_count"])
+            col_c.metric("Collection", doc.get("collection", "—"))
+            st.caption(
+                f"**Source:** {doc['source_path']}  ·  "
+                f"**Hash:** `{doc['source_hash'][:16]}…`  ·  "
+                f"**Processed:** {doc.get('processed_at', '—')}"
             )
 
-            # ── Chunk details ──────────────────────────────────────
-            if st.button("Load chunks", key=f"load_chunks_{idx}"):
-                chunks = svc.get_chunks(doc["source_hash"])
-                if chunks:
-                    for cidx, chunk in enumerate(chunks):
-                        with st.expander(
-                            f"Chunk {cidx + 1}: {chunk['id']}", expanded=False
-                        ):
-                            st.text_area(
-                                "Content",
-                                value=chunk.get("text", ""),
-                                height=150,
-                                disabled=True,
-                                key=f"chunk_text_{idx}_{cidx}",
-                            )
-                            st.json(chunk.get("metadata", {}))
-                else:
-                    st.caption("No chunks found in ChromaDB for this document.")
+            st.divider()
+
+            # ── Chunk cards ────────────────────────────────────────
+            chunks = svc.get_chunks(doc["source_hash"], coll_arg)
+            if chunks:
+                st.markdown(f"### 📦 Chunks ({len(chunks)})")
+                for cidx, chunk in enumerate(chunks):
+                    text = chunk.get("text", "")
+                    meta = chunk.get("metadata", {})
+                    chunk_id = chunk["id"]
+
+                    # Title from metadata or first line
+                    title = meta.get("title", "")
+                    if not title:
+                        title = text[:60].replace("\n", " ").strip()
+                        if len(text) > 60:
+                            title += "…"
+
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**Chunk {cidx + 1}** · `{chunk_id[-16:]}` · "
+                            f"{len(text)} chars"
+                        )
+                        # Show the actual chunk text
+                        st.text_area(
+                            "Content",
+                            value=text,
+                            height=min(max(80, len(text) // 3), 300),
+                            disabled=True,
+                            key=f"chunk_text_{idx}_{cidx}",
+                            label_visibility="collapsed",
+                        )
+                        # Expandable metadata
+                        with st.expander("📋 Metadata", expanded=False):
+                            st.json(meta)
+            else:
+                st.caption("No chunks found in vector store for this document.")
 
             # ── Image preview ──────────────────────────────────────
-            images = svc.get_images(doc["source_hash"])
+            images = svc.get_images(doc["source_hash"], coll_arg)
             if images:
-                st.markdown(f"**🖼️ Images ({len(images)})**")
+                st.divider()
+                st.markdown(f"### 🖼️ Images ({len(images)})")
                 img_cols = st.columns(min(len(images), 4))
                 for iidx, img in enumerate(images):
                     with img_cols[iidx % len(img_cols)]:
