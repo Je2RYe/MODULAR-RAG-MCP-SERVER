@@ -22,6 +22,7 @@ from mcp import types
 
 from src.core.response.response_builder import ResponseBuilder, MCPToolResponse
 from src.core.settings import load_settings, Settings
+from src.core.trace import TraceContext, TraceCollector
 from src.core.types import RetrievalResult
 
 if TYPE_CHECKING:
@@ -226,16 +227,22 @@ class QueryKnowledgeHubTool:
             f"top_k={effective_top_k}, collection={effective_collection}"
         )
         
+        trace = TraceContext(trace_type="query")
+        trace.metadata["query"] = query[:200]
+        trace.metadata["top_k"] = effective_top_k
+        trace.metadata["collection"] = effective_collection
+        trace.metadata["source"] = "mcp"
+
         try:
             # Initialize components for collection
             self._ensure_initialized(effective_collection)
             
             # Perform hybrid search
-            results = self._perform_search(query, effective_top_k)
+            results = self._perform_search(query, effective_top_k, trace=trace)
             
             # Apply reranking if enabled
             if self.config.enable_rerank and results:
-                results = self._apply_rerank(query, results, effective_top_k)
+                results = self._apply_rerank(query, results, effective_top_k, trace=trace)
             
             # Build response
             response = self._response_builder.build(
@@ -249,10 +256,12 @@ class QueryKnowledgeHubTool:
                 f"is_empty={response.is_empty}"
             )
             
+            TraceCollector().collect(trace)
             return response
             
         except Exception as e:
             logger.exception(f"query_knowledge_hub failed: {e}")
+            TraceCollector().collect(trace)
             # Return error response
             return self._build_error_response(query, effective_collection, str(e))
     
@@ -260,12 +269,14 @@ class QueryKnowledgeHubTool:
         self,
         query: str,
         top_k: int,
+        trace: Optional[Any] = None,
     ) -> List[RetrievalResult]:
         """Perform hybrid search.
         
         Args:
             query: Search query.
             top_k: Maximum results.
+            trace: Optional TraceContext for observability.
             
         Returns:
             List of RetrievalResult.
@@ -281,6 +292,7 @@ class QueryKnowledgeHubTool:
                 query=query,
                 top_k=initial_top_k,
                 filters=None,
+                trace=trace,
                 return_details=False,
             )
             return results if isinstance(results, list) else results.results
@@ -293,6 +305,7 @@ class QueryKnowledgeHubTool:
         query: str,
         results: List[RetrievalResult],
         top_k: int,
+        trace: Optional[Any] = None,
     ) -> List[RetrievalResult]:
         """Apply reranking to search results.
         
@@ -300,6 +313,7 @@ class QueryKnowledgeHubTool:
             query: Original query.
             results: Search results to rerank.
             top_k: Final number of results.
+            trace: Optional TraceContext for observability.
             
         Returns:
             Reranked results (or original if reranking fails).
@@ -312,6 +326,7 @@ class QueryKnowledgeHubTool:
                 query=query,
                 results=results,
                 top_k=top_k,
+                trace=trace,
             )
             
             if rerank_result.used_fallback:

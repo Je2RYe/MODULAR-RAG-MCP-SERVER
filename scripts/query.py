@@ -41,6 +41,7 @@ from src.core.query_engine.hybrid_search import create_hybrid_search
 from src.core.query_engine.dense_retriever import create_dense_retriever
 from src.core.query_engine.sparse_retriever import create_sparse_retriever
 from src.core.query_engine.reranker import create_core_reranker
+from src.core.trace import TraceContext, TraceCollector
 from src.ingestion.storage.bm25_indexer import BM25Indexer
 from src.libs.embedding.embedding_factory import EmbeddingFactory
 from src.libs.vector_store.vector_store_factory import VectorStoreFactory
@@ -169,15 +170,21 @@ def _run_query(
     use_rerank: bool,
     verbose: bool,
 ) -> int:
+    trace = TraceContext(trace_type="query")
+    trace.metadata["query"] = query[:200]
+    trace.metadata["top_k"] = top_k
+
     try:
         hybrid_result = hybrid_search.search(
             query=query,
             top_k=top_k,
             filters=None,
+            trace=trace,
             return_details=verbose,
         )
     except Exception as e:
         print(f"[FAIL] Hybrid search failed: {e}")
+        TraceCollector().collect(trace)
         return 1
 
     if verbose:
@@ -208,7 +215,7 @@ def _run_query(
     # Optional reranking
     if use_rerank and reranker.is_enabled:
         try:
-            rerank_result = reranker.rerank(query=query, results=results, top_k=top_k)
+            rerank_result = reranker.rerank(query=query, results=results, top_k=top_k, trace=trace)
             results = rerank_result.results
             if verbose and rerank_result.used_fallback:
                 print(
@@ -223,6 +230,7 @@ def _run_query(
         print("[INFO] Reranking disabled by settings.")
 
     _print_results(results, top_k=effective_top_k)
+    TraceCollector().collect(trace)
     return 0
 
 

@@ -24,6 +24,7 @@ def _run_ingestion(
 ) -> None:
     """Save the uploaded file to a temp location and run the pipeline."""
     from src.core.settings import load_settings
+    from src.core.trace import TraceContext, TraceCollector
     from src.ingestion.pipeline import IngestionPipeline
 
     settings = load_settings("config/settings.yaml")
@@ -38,11 +39,16 @@ def _run_ingestion(
         progress_bar.progress(current / total, text=f"Stage {current}/{total}: {stage}")
         status_text.caption(f"Processing: {stage} …")
 
+    trace = TraceContext(trace_type="ingestion")
+    trace.metadata["source_path"] = uploaded_file.name
+    trace.metadata["collection"] = collection
+    trace.metadata["source"] = "dashboard"
+
     try:
-        pipeline = IngestionPipeline(settings)
+        pipeline = IngestionPipeline(settings, collection=collection)
         pipeline.run(
-            source_path=tmp_path,
-            collection=collection,
+            file_path=tmp_path,
+            trace=trace,
             on_progress=on_progress,
         )
         progress_bar.progress(1.0, text="✅ Complete")
@@ -50,6 +56,7 @@ def _run_ingestion(
     except Exception as exc:
         status_text.error(f"Ingestion failed: {exc}")
     finally:
+        TraceCollector().collect(trace)
         # Clean up temp file
         try:
             Path(tmp_path).unlink(missing_ok=True)

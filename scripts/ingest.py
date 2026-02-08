@@ -40,6 +40,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.settings import load_settings, Settings
+from src.core.trace import TraceContext, TraceCollector
 from src.ingestion.pipeline import IngestionPipeline, PipelineResult
 from src.observability.logger import get_logger
 
@@ -246,11 +247,16 @@ def main() -> int:
     print(f"\n[INFO] Processing files...")
     results: List[PipelineResult] = []
     
+    collector = TraceCollector()
+
     for i, file_path in enumerate(files, 1):
         print(f"\n[{i}/{len(files)}] Processing: {file_path}")
         
         try:
-            result = pipeline.run(str(file_path))
+            trace = TraceContext(trace_type="ingestion")
+            trace.metadata["source_path"] = str(file_path)
+            result = pipeline.run(str(file_path), trace=trace)
+            collector.collect(trace)
             results.append(result)
             
             if result.success:
