@@ -25,8 +25,8 @@ def _page_data_browser() -> None:
 
 
 def _page_ingestion_manager() -> None:
-    st.header("📥 Ingestion Manager")
-    st.info("🚧 This page will be implemented in G4.")
+    from src.observability.dashboard.pages.ingestion_manager import render
+    render()
 
 
 def _page_ingestion_traces() -> None:
