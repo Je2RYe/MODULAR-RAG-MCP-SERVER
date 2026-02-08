@@ -331,6 +331,49 @@ class ChromaStore(BaseVectorStore):
             raise RuntimeError(
                 f"Failed to clear collection '{collection_name or self.collection_name}': {e}"
             ) from e
+
+    def delete_by_metadata(
+        self,
+        filter_dict: Dict[str, Any],
+        trace: Optional[Any] = None,
+    ) -> int:
+        """Delete records matching a metadata filter.
+
+        Args:
+            filter_dict: Metadata key/value pairs to match
+                (e.g. ``{"source_hash": "abc123"}``).
+            trace: Optional TraceContext for observability.
+
+        Returns:
+            Number of records deleted.
+
+        Raises:
+            ValueError: If *filter_dict* is empty.
+            RuntimeError: If the operation fails.
+        """
+        if not filter_dict:
+            raise ValueError("filter_dict cannot be empty")
+
+        try:
+            where = self._build_where_clause(filter_dict)
+            # Query matching IDs first
+            results = self.collection.get(where=where, include=[])
+            matching_ids = results.get("ids", [])
+
+            if not matching_ids:
+                logger.debug(f"delete_by_metadata: no records matched {filter_dict}")
+                return 0
+
+            self.collection.delete(ids=matching_ids)
+            logger.info(
+                f"delete_by_metadata: deleted {len(matching_ids)} records "
+                f"matching {filter_dict}"
+            )
+            return len(matching_ids)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to delete by metadata {filter_dict}: {e}"
+            ) from e
     
     def _sanitize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize metadata to ensure ChromaDB compatibility.

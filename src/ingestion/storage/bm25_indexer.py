@@ -304,6 +304,76 @@ class BM25Indexer:
             trace: Optional TraceContext for observability
         """
         self.build(term_stats, collection, trace)
+
+    def remove_document(
+        self,
+        doc_id: str,
+        collection: str = "default",
+    ) -> bool:
+        """Remove all postings for a document from the BM25 index.
+
+        Loads the index (if not already loaded), removes any postings
+        whose ``chunk_id`` starts with *doc_id*, recalculates statistics,
+        and re-saves the index.
+
+        Args:
+            doc_id: Document identifier (or prefix).  All postings whose
+                ``chunk_id`` starts with this value are removed.
+            collection: Collection name.
+
+        Returns:
+            ``True`` if any postings were removed, ``False`` otherwise.
+        """
+        if not self._index:
+            if not self.load(collection):
+                return False
+
+        removed_any = False
+        terms_to_delete: list[str] = []
+
+        for term, term_data in self._index.items():
+            original_len = len(term_data["postings"])
+            term_data["postings"] = [
+                p for p in term_data["postings"]
+                if not p["chunk_id"].startswith(doc_id)
+            ]
+            if len(term_data["postings"]) < original_len:
+                removed_any = True
+            # Mark empty terms for cleanup
+            if not term_data["postings"]:
+                terms_to_delete.append(term)
+            else:
+                term_data["df"] = len(term_data["postings"])
+
+        # Remove empty terms
+        for term in terms_to_delete:
+            del self._index[term]
+
+        if removed_any:
+            # Recalculate global metadata
+            all_chunk_ids: set[str] = set()
+            total_length = 0
+            for td in self._index.values():
+                for p in td["postings"]:
+                    all_chunk_ids.add(p["chunk_id"])
+                    total_length += p["doc_length"]
+
+            num_docs = len(all_chunk_ids)
+            avg_doc_length = total_length / num_docs if num_docs else 0.0
+
+            # Recalculate IDF values
+            for td in self._index.values():
+                td["idf"] = self._calculate_idf(num_docs, td["df"])
+
+            self._metadata = {
+                "num_docs": num_docs,
+                "avg_doc_length": avg_doc_length,
+                "total_terms": len(self._index),
+                "collection": collection,
+            }
+            self._save(collection)
+
+        return removed_any
     
     # ===== Private Helper Methods =====
     

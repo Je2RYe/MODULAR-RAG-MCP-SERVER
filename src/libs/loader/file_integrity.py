@@ -16,7 +16,7 @@ import sqlite3
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 class FileIntegrityChecker(ABC):
@@ -92,6 +92,34 @@ class FileIntegrityChecker(ABC):
             
         Raises:
             RuntimeError: If database operation fails.
+        """
+        pass
+
+    @abstractmethod
+    def remove_record(self, file_hash: str) -> bool:
+        """Remove an ingestion record by its file hash.
+
+        Args:
+            file_hash: SHA256 hash identifying the record.
+
+        Returns:
+            True if a record was deleted, False if not found.
+        """
+        pass
+
+    @abstractmethod
+    def list_processed(
+        self, collection: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List successfully processed files.
+
+        Args:
+            collection: Optional collection filter.  When *None* all
+                successful records are returned.
+
+        Returns:
+            List of dicts with keys: file_hash, file_path, collection,
+            processed_at, updated_at.
         """
         pass
 
@@ -343,5 +371,57 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             conn.commit()
         except sqlite3.Error as e:
             raise RuntimeError(f"Failed to mark failure for {file_path}: {e}")
+        finally:
+            conn.close()
+
+    def remove_record(self, file_hash: str) -> bool:
+        """Remove an ingestion record by its file hash.
+
+        Args:
+            file_hash: SHA256 hash identifying the record.
+
+        Returns:
+            True if a record was deleted, False if not found.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.execute(
+                "DELETE FROM ingestion_history WHERE file_hash = ?",
+                (file_hash,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            raise RuntimeError(f"Failed to remove record {file_hash}: {e}")
+        finally:
+            conn.close()
+
+    def list_processed(
+        self, collection: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List successfully processed files.
+
+        Args:
+            collection: Optional collection filter.
+
+        Returns:
+            List of dicts with keys: file_hash, file_path, collection,
+            processed_at, updated_at.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            query = (
+                "SELECT file_hash, file_path, collection, processed_at, updated_at "
+                "FROM ingestion_history WHERE status = 'success'"
+            )
+            params: list[str] = []
+            if collection is not None:
+                query += " AND collection = ?"
+                params.append(collection)
+            query += " ORDER BY processed_at ASC"
+
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
