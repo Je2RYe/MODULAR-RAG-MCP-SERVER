@@ -21,6 +21,12 @@ def _get_ragas_evaluator() -> type[BaseEvaluator]:
     return RagasEvaluator
 
 
+def _get_composite_evaluator() -> type[BaseEvaluator]:
+    """Lazy import CompositeEvaluator."""
+    from src.observability.evaluation.composite_evaluator import CompositeEvaluator
+    return CompositeEvaluator
+
+
 class EvaluatorFactory:
     """Factory for creating Evaluator provider instances.
 
@@ -38,6 +44,7 @@ class EvaluatorFactory:
     # Lazy-loaded providers (import on demand to avoid hard dependencies)
     _LAZY_PROVIDERS: dict[str, Any] = {
         "ragas": _get_ragas_evaluator,
+        "composite": _get_composite_evaluator,
     }
 
     @classmethod
