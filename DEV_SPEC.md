@@ -2047,7 +2047,7 @@ dashboard:
 | H1 | RagasEvaluator 实现 | [x] | 2026-02-09 | 19/19 tests passed |
 | H2 | CompositeEvaluator 实现 | [x] | 2026-02-09 | 11/11 tests passed |
 | H3 | EvalRunner + Golden Test Set | [x] | 2026-02-09 | 15/15 tests passed |
-| H4 | 评估面板页面 | [ ] | - | |
+| H4 | 评估面板页面 | [x] | 2026-02-09 | 6/6 tests passed, dashboard page with history tracking |
 | H5 | Recall 回归测试（E2E） | [ ] | - | |
 
 #### 阶段 I：端到端验收与文档收口
@@ -2073,9 +2073,9 @@ dashboard:
 | 阶段 E | 6 | 6 | 100% |
 | 阶段 F | 5 | 5 | 100% |
 | 阶段 G | 6 | 6 | 100% |
-| 阶段 H | 5 | 3 | 60% |
+| 阶段 H | 5 | 4 | 80% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **61** | **90%** |
+| **总计** | **68** | **62** | **91%** |
 
 
 ---
