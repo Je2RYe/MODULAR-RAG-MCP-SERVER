@@ -52,16 +52,57 @@ def render() -> None:
         started = trace.get("started_at", "—")
         total_ms = trace.get("elapsed_ms")
         total_label = f"{total_ms:.0f} ms" if total_ms is not None else "—"
+        meta = trace.get("metadata", {})
+        query_text = meta.get("query", "")
+        source = meta.get("source", "unknown")
 
-        with st.expander(
-            f"**{trace_id[:12]}…** — {started} — total: {total_label}",
-            expanded=(idx == 0),
-        ):
+        # ── Expander title: show query text ────────────────────
+        query_preview = (
+            query_text[:40] + "…" if len(query_text) > 40 else query_text
+        ) if query_text else "—"
+        expander_title = (
+            f"🔍 \"{query_preview}\"  ·  {total_label}  ·  {started[:19]}"
+        )
+
+        with st.expander(expander_title, expanded=(idx == 0)):
+            # ── 1. Query overview ──────────────────────────────
+            st.markdown("#### 💬 Query")
+            col_q, col_meta = st.columns([3, 1])
+            with col_q:
+                st.markdown(f"> {query_text}")
+            with col_meta:
+                source_emoji = "🤖" if source == "mcp" else "📡"
+                st.markdown(f"**Source:** {source_emoji} `{source}`")
+                st.markdown(f"**Top-K:** `{meta.get('top_k', '—')}`")
+                st.markdown(f"**Collection:** `{meta.get('collection', '—')}`")
+
+            st.divider()
+
+            # ── 2. Retrieval results summary ───────────────────
             timings = svc.get_stage_timings(trace)
+            dense = _find_stage(timings, "dense_retrieval")
+            sparse = _find_stage(timings, "sparse_retrieval")
+            rerank = _find_stage(timings, "rerank")
 
-            # ── Stage waterfall chart ──────────────────────────────
+            dense_count = dense["data"].get("result_count", 0) if dense and dense.get("data") else 0
+            sparse_count = sparse["data"].get("result_count", 0) if sparse and sparse.get("data") else 0
+
+            st.markdown("#### 📊 Retrieval Results")
+            rc1, rc2, rc3, rc4 = st.columns(4)
+            with rc1:
+                st.metric("Dense Hits", dense_count)
+            with rc2:
+                st.metric("Sparse Hits", sparse_count)
+            with rc3:
+                st.metric("Total Fused", dense_count + sparse_count)
+            with rc4:
+                st.metric("Total Time", total_label)
+
+            st.divider()
+
+            # ── 3. Stage waterfall chart ───────────────────────
             if timings:
-                st.markdown("**Stage Timings**")
+                st.markdown("#### ⏱️ Stage Timings")
 
                 chart_data = {t["stage_name"]: t["elapsed_ms"] for t in timings}
                 st.bar_chart(chart_data, horizontal=True)
@@ -69,39 +110,36 @@ def render() -> None:
                 st.table(
                     [
                         {
+                            "": i,
                             "Stage": t["stage_name"],
                             "Elapsed (ms)": round(t["elapsed_ms"], 2),
                         }
-                        for t in timings
+                        for i, t in enumerate(timings)
                     ]
                 )
 
-            # ── Dense vs Sparse comparison ─────────────────────────
-            dense = _find_stage(timings, "dense_retrieval")
-            sparse = _find_stage(timings, "sparse_retrieval")
-
+            # ── 4. Dense vs Sparse detail ──────────────────────
             if dense or sparse:
-                st.markdown("**Dense vs Sparse Retrieval**")
+                st.markdown("#### 🔬 Dense vs Sparse Detail")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric(
                         "Dense Retrieval",
                         f"{dense['elapsed_ms']:.1f} ms" if dense else "—",
                     )
-                    if dense and dense["data"]:
+                    if dense and dense.get("data"):
                         st.json(dense["data"])
                 with col2:
                     st.metric(
                         "Sparse Retrieval",
                         f"{sparse['elapsed_ms']:.1f} ms" if sparse else "—",
                     )
-                    if sparse and sparse["data"]:
+                    if sparse and sparse.get("data"):
                         st.json(sparse["data"])
 
-            # ── Rerank details ─────────────────────────────────────
-            rerank = _find_stage(timings, "rerank")
+            # ── 5. Rerank details ──────────────────────────────
             if rerank:
-                st.markdown("**Reranking**")
+                st.markdown("#### 🔄 Reranking")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Elapsed", f"{rerank['elapsed_ms']:.1f} ms")
@@ -116,13 +154,12 @@ def render() -> None:
                         rerank["data"].get("output_count", "—"),
                     )
 
-            # ── Metadata ───────────────────────────────────────────
-            meta = trace.get("metadata", {})
+            # ── 6. Raw metadata ────────────────────────────────
             if meta:
-                with st.expander("Metadata", expanded=False):
+                with st.expander("🗂️ Raw Metadata", expanded=False):
                     st.json(meta)
 
-            # ── Ragas Evaluate button ──────────────────────────────
+            # ── 7. Ragas Evaluate button ───────────────────────
             _render_evaluate_button(trace, idx)
 
 
