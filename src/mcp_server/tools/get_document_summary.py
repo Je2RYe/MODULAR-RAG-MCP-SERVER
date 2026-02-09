@@ -12,6 +12,7 @@ Usage via MCP:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -573,7 +574,11 @@ class GetDocumentSummaryTool:
         logger.info(f"Executing get_document_summary (doc_id={doc_id}, collection={collection})")
         
         try:
-            summary = self.get_document_summary(doc_id=doc_id, collection=collection)
+            # Run blocking ChromaDB I/O in a thread to avoid blocking
+            # the async event loop / MCP stdio transport
+            summary = await asyncio.to_thread(
+                self.get_document_summary, doc_id, collection,
+            )
             response_text = self.format_response(summary)
             
             return types.CallToolResult(

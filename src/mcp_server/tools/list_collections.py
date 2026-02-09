@@ -11,6 +11,7 @@ Usage via MCP:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -284,7 +285,11 @@ class ListCollectionsTool:
         logger.info(f"Executing list_collections (include_stats={include_stats})")
         
         try:
-            collections = self.list_collections(include_stats=include_stats)
+            # Run blocking ChromaDB I/O in a thread to avoid blocking
+            # the async event loop / MCP stdio transport
+            collections = await asyncio.to_thread(
+                self.list_collections, include_stats,
+            )
             response_text = self.format_response(collections)
             
             return types.CallToolResult(
