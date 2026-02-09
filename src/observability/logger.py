@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -39,7 +40,11 @@ def get_logger(name: str = "modular-rag", log_level: Optional[str] = None) -> lo
     else:
         level = logging.INFO
 
-    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
 
     # Suppress httpx logs (contains sensitive endpoint URLs)
     logging.getLogger("httpx").setLevel(logging.WARNING)

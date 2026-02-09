@@ -22,6 +22,28 @@ SERVER_NAME = "modular-rag-mcp-server"
 SERVER_VERSION = "0.1.0"
 
 
+def _redirect_all_loggers_to_stderr() -> None:
+    """Redirect all root logger handlers to stderr.
+
+    MCP stdio transport reserves stdout for JSON-RPC messages.
+    Any logging to stdout corrupts the protocol stream.
+    """
+    import logging as _logging
+
+    root = _logging.getLogger()
+    stderr_handler = _logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(
+        _logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    # Replace any existing stream handlers that might point to stdout
+    for handler in root.handlers[:]:
+        if isinstance(handler, _logging.StreamHandler) and not isinstance(
+            handler, _logging.FileHandler
+        ):
+            root.removeHandler(handler)
+    root.addHandler(stderr_handler)
+
+
 async def run_stdio_server_async() -> int:
     """Run MCP server over stdio asynchronously.
 
@@ -30,6 +52,9 @@ async def run_stdio_server_async() -> int:
     """
     # Import here to avoid import errors if mcp not installed
     import mcp.server.stdio
+
+    # Ensure ALL logging goes to stderr (stdout is reserved for JSON-RPC)
+    _redirect_all_loggers_to_stderr()
 
     logger = get_logger(log_level="INFO")
     logger.info("Starting MCP server (stdio transport) with official SDK.")

@@ -14,6 +14,7 @@ Usage via MCP:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -235,14 +236,20 @@ class QueryKnowledgeHubTool:
 
         try:
             # Initialize components for collection
-            self._ensure_initialized(effective_collection)
+            # Run blocking I/O (embedding API, ChromaDB, BM25) in a thread
+            # to avoid blocking the async event loop / MCP stdio transport
+            await asyncio.to_thread(self._ensure_initialized, effective_collection)
             
-            # Perform hybrid search
-            results = self._perform_search(query, effective_top_k, trace=trace)
+            # Perform hybrid search (blocking: embedding API + DB queries)
+            results = await asyncio.to_thread(
+                self._perform_search, query, effective_top_k, trace,
+            )
             
-            # Apply reranking if enabled
+            # Apply reranking if enabled (may call LLM API)
             if self.config.enable_rerank and results:
-                results = self._apply_rerank(query, results, effective_top_k, trace=trace)
+                results = await asyncio.to_thread(
+                    self._apply_rerank, query, results, effective_top_k, trace,
+                )
             
             # Build response
             response = self._response_builder.build(
