@@ -2023,22 +2023,22 @@ dashboard:
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2025-07-15 | TraceContext增强(trace_type/finish/elapsed_ms/to_dict)+TraceCollector+28单元测试 |
-| F2 | 结构化日志 logger（JSON Lines） | [x] | 2025-07-15 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
-| F3 | 在 Query 链路打点 | [x] | 2025-07-15 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
-| F4 | 在 Ingestion 链路打点 | [x] | 2025-07-15 | Pipeline五阶段trace注入(load/split/transform/embed/upsert)+11集成测试 |
-| F5 | Pipeline 进度回调 (on_progress) | [x] | 2025-07-15 | on_progress回调(6阶段通知)+6单元测试 |
+| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2026-02-08 | TraceContext增强(trace_type/finish/elapsed_ms/to_dict)+TraceCollector+28单元测试 |
+| F2 | 结构化日志 logger（JSON Lines） | [x] | 2026-02-08 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
+| F3 | 在 Query 链路打点 | [x] | 2026-02-08 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
+| F4 | 在 Ingestion 链路打点 | [x] | 2026-02-08 | Pipeline五阶段trace注入(load/split/transform/embed/upsert)+11集成测试 |
+| F5 | Pipeline 进度回调 (on_progress) | [x] | 2026-02-08 | on_progress回调(6阶段通知)+6单元测试 |
 
 #### 阶段 G：可视化管理平台 Dashboard
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| G1 | Dashboard 基础架构与系统总览页 | [x] | 2025-07-15 | app.py多页面导航+overview页+ConfigService+start_dashboard.py+11单元测试 |
-| G2 | DocumentManager 实现 | [x] | 2025-07-15 | |
-| G3 | 数据浏览器页面 | [x] | 2025-07-15 | |
-| G4 | Ingestion 管理页面 | [x] | 2025-07-15 | |
-| G5 | Ingestion 追踪页面 | [x] | 2025-07-15 | |
-| G6 | Query 追踪页面 | [x] | 2025-07-15 | |
+| G1 | Dashboard 基础架构与系统总览页 | [x] | 2026-02-09 | app.py多页面导航+overview页+ConfigService+start_dashboard.py+11单元测试 |
+| G2 | DocumentManager 实现 | [x] | 2026-02-09 | DocumentManager跨存储协调(ChromaStore+BM25+ImageStorage+IntegrityChecker)+文档删除+21单元测试 |
+| G3 | 数据浏览器页面 | [x] | 2026-02-09 | DataService只读门面+文档列表+chunk内容展示+元数据JSON展开+collection切换 |
+| G4 | Ingestion 管理页面 | [x] | 2026-02-09 | 文件上传+IngestionPipeline集成+实时进度条+TraceContext自动记录 |
+| G5 | Ingestion 追踪页面 | [x] | 2026-02-09 | TraceService读取traces.jsonl+阶段时间线+耗时柱状图+stage详情展开 |
+| G6 | Query 追踪页面 | [x] | 2026-02-09 | Query trace过滤+检索结果展示+rerank对比+耗时分析 |
 
 #### 阶段 H：评估体系
 
@@ -2071,11 +2071,11 @@ dashboard:
 | 阶段 C | 15 | 15 | 100% |
 | 阶段 D | 7 | 7 | 100% |
 | 阶段 E | 6 | 6 | 100% |
-| 阶段 F | 5 | 0 | 0% |
-| 阶段 G | 6 | 0 | 0% |
+| 阶段 F | 5 | 5 | 100% |
+| 阶段 G | 6 | 6 | 100% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **47** | **69%** |
+| **总计** | **68** | **58** | **85%** |
 
 
 ---
