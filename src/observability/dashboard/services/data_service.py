@@ -48,25 +48,25 @@ class DataService:
         ):
             return
 
-        from src.core.settings import load_settings
+        from src.core.settings import load_settings, resolve_path
         from src.ingestion.document_manager import DocumentManager
         from src.ingestion.storage.bm25_indexer import BM25Indexer
         from src.ingestion.storage.image_storage import ImageStorage
         from src.libs.loader.file_integrity import SQLiteIntegrityChecker
         from src.libs.vector_store.vector_store_factory import VectorStoreFactory
 
-        settings = load_settings("config/settings.yaml")
+        settings = load_settings()
 
         chroma = VectorStoreFactory.create(
             settings, collection_name=target_collection
         )
-        bm25 = BM25Indexer(index_dir=f"data/db/bm25/{target_collection}")
+        bm25 = BM25Indexer(index_dir=str(resolve_path(f"data/db/bm25/{target_collection}")))
         images = ImageStorage(
-            db_path="data/db/image_index.db",
-            images_root="data/images",
+            db_path=str(resolve_path("data/db/image_index.db")),
+            images_root=str(resolve_path("data/images")),
         )
         integrity = SQLiteIntegrityChecker(
-            db_path="data/db/ingestion_history.db"
+            db_path=str(resolve_path("data/db/ingestion_history.db"))
         )
 
         self._chroma = chroma
@@ -144,6 +144,23 @@ class DataService:
         except Exception as exc:
             logger.warning("Failed to get images for %s: %s", source_hash, exc)
             return []
+
+    def delete_document(
+        self,
+        source_path: str,
+        collection: Optional[str] = None,
+        source_hash: Optional[str] = None,
+    ) -> Any:
+        """Delete a document via the underlying DocumentManager.
+
+        Returns a ``DeleteResult`` dataclass.
+        """
+        self._ensure_stores(collection)
+        return self._manager.delete_document(
+            source_path,
+            collection or "default",
+            source_hash=source_hash,
+        )
 
     def get_collection_stats(
         self, collection: Optional[str] = None

@@ -30,15 +30,15 @@ class ConfigService:
         settings_path: Path to ``settings.yaml``.
     """
 
-    def __init__(self, settings_path: str = "config/settings.yaml") -> None:
-        self._settings_path = Path(settings_path)
+    def __init__(self, settings_path: Optional[str] = None) -> None:
+        self._settings_path = settings_path
         self._settings: Optional[Settings] = None
 
     # ── lazy load ────────────────────────────────────────────────────
 
     def _load(self) -> Settings:
         if self._settings is None:
-            self._settings = load_settings(str(self._settings_path))
+            self._settings = load_settings(self._settings_path)
         return self._settings
 
     def reload(self) -> None:

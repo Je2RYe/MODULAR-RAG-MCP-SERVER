@@ -85,11 +85,12 @@ def render() -> None:
                             f"**Chunk {cidx + 1}** · `{chunk_id[-16:]}` · "
                             f"{len(text)} chars"
                         )
-                        # Show the actual chunk text
+                        # Show the actual chunk text (scrollable)
+                        _height = max(120, min(len(text) // 2, 600))
                         st.text_area(
                             "Content",
                             value=text,
-                            height=min(max(80, len(text) // 3), 300),
+                            height=_height,
                             disabled=True,
                             key=f"chunk_text_{idx}_{cidx}",
                             label_visibility="collapsed",

@@ -24,7 +24,7 @@ def _safe_collection_stats() -> Dict[str, Any]:
         from src.core.settings import load_settings
         from src.libs.vector_store.vector_store_factory import VectorStoreFactory
 
-        settings = load_settings("config/settings.yaml")
+        settings = load_settings()
         store = VectorStoreFactory.create(settings)
         collections = store.list_collections() if hasattr(store, "list_collections") else []
         stats: Dict[str, Any] = {}
@@ -72,9 +72,10 @@ def render() -> None:
     # ── Trace file statistics ──────────────────────────────────────
     st.subheader("📈 Trace Statistics")
 
-    traces_path = Path("logs/traces.jsonl")
+    from src.core.settings import resolve_path
+    traces_path = resolve_path("logs/traces.jsonl")
     if traces_path.exists():
-        line_count = sum(1 for _ in traces_path.open())
+        line_count = sum(1 for _ in traces_path.open(encoding="utf-8"))
         st.metric("Total traces", line_count)
     else:
         st.info("No traces recorded yet. Run a query or ingestion first.")

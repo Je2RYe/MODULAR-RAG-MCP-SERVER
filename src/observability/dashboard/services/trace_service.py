@@ -10,10 +10,12 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.core.settings import resolve_path
+
 logger = logging.getLogger(__name__)
 
-# Default path to the traces file (matches TraceCollector convention)
-DEFAULT_TRACES_PATH = Path("logs/traces.jsonl")
+# Default path to the traces file (absolute, CWD-independent)
+DEFAULT_TRACES_PATH = resolve_path("logs/traces.jsonl")
 
 
 class TraceService:
@@ -77,15 +79,16 @@ class TraceService:
         stages = trace.get("stages", [])
         timings: List[Dict[str, Any]] = []
         for s in stages:
+            # The raw stage dict has: stage, timestamp, data (dict), elapsed_ms
+            # Extract the inner 'data' dict directly rather than flattening
+            stage_data = s.get("data", {})
+            if not isinstance(stage_data, dict):
+                stage_data = {}
             timings.append(
                 {
                     "stage_name": s.get("stage"),
                     "elapsed_ms": s.get("elapsed_ms", 0),
-                    "data": {
-                        k: v
-                        for k, v in s.items()
-                        if k not in ("stage", "elapsed_ms")
-                    },
+                    "data": stage_data,
                 }
             )
         return timings

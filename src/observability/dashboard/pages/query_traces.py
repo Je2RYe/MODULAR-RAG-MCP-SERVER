@@ -78,88 +78,90 @@ def render() -> None:
 
             st.divider()
 
-            # ── 2. Retrieval results summary ───────────────────
+            # ── 2. Overview metrics ────────────────────────────
             timings = svc.get_stage_timings(trace)
-            dense = _find_stage(timings, "dense_retrieval")
-            sparse = _find_stage(timings, "sparse_retrieval")
-            rerank = _find_stage(timings, "rerank")
+            stages_by_name = {t["stage_name"]: t for t in timings}
 
-            dense_count = dense["data"].get("result_count", 0) if dense and dense.get("data") else 0
-            sparse_count = sparse["data"].get("result_count", 0) if sparse and sparse.get("data") else 0
+            dense_d = (stages_by_name.get("dense_retrieval", {}).get("data") or {})
+            sparse_d = (stages_by_name.get("sparse_retrieval", {}).get("data") or {})
+            fusion_d = (stages_by_name.get("fusion", {}).get("data") or {})
+            rerank_d = (stages_by_name.get("rerank", {}).get("data") or {})
 
-            st.markdown("#### 📊 Retrieval Results")
-            rc1, rc2, rc3, rc4 = st.columns(4)
+            dense_count = dense_d.get("result_count", 0)
+            sparse_count = sparse_d.get("result_count", 0)
+            fusion_count = fusion_d.get("result_count", 0)
+            rerank_count = rerank_d.get("output_count", 0)
+
+            rc1, rc2, rc3, rc4, rc5 = st.columns(5)
             with rc1:
                 st.metric("Dense Hits", dense_count)
             with rc2:
                 st.metric("Sparse Hits", sparse_count)
             with rc3:
-                st.metric("Total Fused", dense_count + sparse_count)
+                st.metric("Fused", fusion_count or (dense_count + sparse_count))
             with rc4:
+                st.metric("After Rerank", rerank_count if rerank_d else "—")
+            with rc5:
                 st.metric("Total Time", total_label)
 
             st.divider()
 
-            # ── 3. Stage waterfall chart ───────────────────────
-            if timings:
+            # ── 3. Stage timing waterfall ──────────────────────
+            main_stage_names = ("query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "rerank")
+            main_timings = [t for t in timings if t["stage_name"] in main_stage_names]
+            if main_timings:
                 st.markdown("#### ⏱️ Stage Timings")
-
-                chart_data = {t["stage_name"]: t["elapsed_ms"] for t in timings}
+                chart_data = {t["stage_name"]: t["elapsed_ms"] for t in main_timings}
                 st.bar_chart(chart_data, horizontal=True)
+                st.table([
+                    {
+                        "Stage": t["stage_name"],
+                        "Elapsed (ms)": round(t["elapsed_ms"], 2),
+                    }
+                    for t in main_timings
+                ])
 
-                st.table(
-                    [
-                        {
-                            "": i,
-                            "Stage": t["stage_name"],
-                            "Elapsed (ms)": round(t["elapsed_ms"], 2),
-                        }
-                        for i, t in enumerate(timings)
-                    ]
-                )
+            st.divider()
 
-            # ── 4. Dense vs Sparse detail ──────────────────────
-            if dense or sparse:
-                st.markdown("#### 🔬 Dense vs Sparse Detail")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric(
-                        "Dense Retrieval",
-                        f"{dense['elapsed_ms']:.1f} ms" if dense else "—",
-                    )
-                    if dense and dense.get("data"):
-                        st.json(dense["data"])
-                with col2:
-                    st.metric(
-                        "Sparse Retrieval",
-                        f"{sparse['elapsed_ms']:.1f} ms" if sparse else "—",
-                    )
-                    if sparse and sparse.get("data"):
-                        st.json(sparse["data"])
+            # ── 4. Per-stage detail tabs ───────────────────────
+            st.markdown("#### 🔍 Stage Details")
 
-            # ── 5. Rerank details ──────────────────────────────
-            if rerank:
-                st.markdown("#### 🔄 Reranking")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Elapsed", f"{rerank['elapsed_ms']:.1f} ms")
-                with col2:
-                    st.metric(
-                        "Input count",
-                        rerank["data"].get("input_count", "—"),
-                    )
-                with col3:
-                    st.metric(
-                        "Output count",
-                        rerank["data"].get("output_count", "—"),
-                    )
+            tab_defs = []
+            if "query_processing" in stages_by_name:
+                tab_defs.append(("🔤 Query Processing", "query_processing"))
+            if "dense_retrieval" in stages_by_name:
+                tab_defs.append(("🟦 Dense Retrieval", "dense_retrieval"))
+            if "sparse_retrieval" in stages_by_name:
+                tab_defs.append(("🟨 Sparse Retrieval", "sparse_retrieval"))
+            if "fusion" in stages_by_name:
+                tab_defs.append(("🟩 Fusion (RRF)", "fusion"))
+            if "rerank" in stages_by_name:
+                tab_defs.append(("🟪 Rerank", "rerank"))
 
-            # ── 6. Raw metadata ────────────────────────────────
-            if meta:
-                with st.expander("🗂️ Raw Metadata", expanded=False):
-                    st.json(meta)
+            if tab_defs:
+                tabs = st.tabs([label for label, _ in tab_defs])
+                for tab, (label, key) in zip(tabs, tab_defs):
+                    with tab:
+                        stage = stages_by_name[key]
+                        data = stage.get("data", {})
+                        elapsed = stage.get("elapsed_ms")
+                        if elapsed is not None:
+                            st.caption(f"⏱️ {elapsed:.1f} ms")
 
-            # ── 7. Ragas Evaluate button ───────────────────────
+                        if key == "query_processing":
+                            _render_query_processing_stage(data)
+                        elif key == "dense_retrieval":
+                            _render_retrieval_stage(data, "Dense")
+                        elif key == "sparse_retrieval":
+                            _render_retrieval_stage(data, "Sparse")
+                        elif key == "fusion":
+                            _render_fusion_stage(data)
+                        elif key == "rerank":
+                            _render_rerank_stage(data)
+            else:
+                st.info("No stage details available.")
+
+            # ── 5. Ragas Evaluate button ───────────────────────
             _render_evaluate_button(trace, idx)
 
 
@@ -210,19 +212,21 @@ def _evaluate_single_trace(
     Returns dict with 'metrics' (score dict) or 'error' (str).
     """
     try:
-        from src.core.settings import load_settings
+        from dataclasses import replace as dc_replace
+
+        from src.core.settings import load_settings, EvaluationSettings
         from src.libs.evaluator.evaluator_factory import EvaluatorFactory
 
         settings = load_settings()
 
-        # Create Ragas evaluator
-        eval_settings = settings.evaluation
-        override = type(eval_settings)(
+        # Override evaluation settings to force Ragas (frozen dataclass, use replace)
+        ragas_eval = EvaluationSettings(
             enabled=True,
             provider="ragas",
-            metrics=eval_settings.metrics if hasattr(eval_settings, "metrics") else [],
+            metrics=list(settings.evaluation.metrics) if settings.evaluation.metrics else [],
         )
-        evaluator = EvaluatorFactory.create(override)
+        settings = dc_replace(settings, evaluation=ragas_eval)
+        evaluator = EvaluatorFactory.create(settings)
 
         # Re-run retrieval
         collection = meta.get("collection", "default")
@@ -232,7 +236,9 @@ def _evaluate_single_trace(
         if not chunks:
             return {"error": "No chunks retrieved — is data indexed?"}
 
-        # Build a simple answer from top chunks
+        # Build a concise answer from top chunks (limit length to avoid
+        # Ragas LLM max_tokens overflow during statement extraction)
+        _MAX_ANSWER_CHARS = 1500
         texts = []
         for c in chunks:
             if hasattr(c, "text"):
@@ -241,7 +247,9 @@ def _evaluate_single_trace(
                 texts.append(c.get("text", str(c)))
             else:
                 texts.append(str(c))
-        answer = " ".join(texts[:5])
+        answer = " ".join(texts[:3])
+        if len(answer) > _MAX_ANSWER_CHARS:
+            answer = answer[:_MAX_ANSWER_CHARS]
 
         # Evaluate
         metrics = evaluator.evaluate(
@@ -283,7 +291,8 @@ def _retrieve_chunks(
             embedding_client=embedding_client,
             vector_store=vector_store,
         )
-        bm25_indexer = BM25Indexer(index_dir=f"data/db/bm25/{collection}")
+        from src.core.settings import resolve_path
+        bm25_indexer = BM25Indexer(index_dir=str(resolve_path(f"data/db/bm25/{collection}")))
         sparse_retriever = create_sparse_retriever(
             settings=settings,
             bm25_indexer=bm25_indexer,
@@ -324,6 +333,146 @@ def _display_eval_metrics(result: Dict[str, Any]) -> None:
                 label=name.replace("_", " ").title(),
                 value=f"{value:.4f}",
             )
+
+
+def _extract_pipeline_chunks(
+    timings: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Extract chunk lists from each pipeline stage."""
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    for stage in timings:
+        name = stage.get("stage_name", "")
+        data = stage.get("data") or {}
+        chunks = data.get("chunks")
+        if chunks and isinstance(chunks, list):
+            result[name] = chunks
+    final = meta.get("final_results") or meta.get("results")
+    if final and isinstance(final, list):
+        result["final"] = final
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# Per-stage renderers
+# ═══════════════════════════════════════════════════════════════
+
+def _render_query_processing_stage(data: Dict[str, Any]) -> None:
+    """Render Query Processing stage: original query → keywords."""
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Original Query**")
+        st.info(data.get("original_query", "—"))
+    with c2:
+        st.markdown("**Method**")
+        st.code(data.get("method", "—"))
+
+    keywords = data.get("keywords", [])
+    if keywords:
+        st.markdown("**Extracted Keywords**")
+        st.markdown(" · ".join(f"`{kw}`" for kw in keywords))
+    else:
+        st.warning("No keywords extracted.")
+
+
+def _render_retrieval_stage(data: Dict[str, Any], label: str) -> None:
+    """Render Dense or Sparse retrieval stage: method, counts, chunk list."""
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Method", data.get("method", "—"))
+    with c2:
+        extra = data.get("provider", data.get("keyword_count", "—"))
+        extra_label = "Provider" if "provider" in data else "Keywords"
+        st.metric(extra_label, extra)
+    with c3:
+        st.metric("Results", data.get("result_count", 0))
+
+    st.markdown(f"**Top-K requested:** `{data.get('top_k', '—')}`")
+
+    chunks = data.get("chunks", [])
+    if chunks:
+        _render_chunk_list(chunks, prefix=f"{label.lower().replace(' ', '_')}_chunk")
+    else:
+        st.info(f"No {label.lower()} results returned.")
+
+
+def _render_fusion_stage(data: Dict[str, Any]) -> None:
+    """Render Fusion (RRF) stage: input lists, fused result count, chunk list."""
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Method", data.get("method", "rrf"))
+    with c2:
+        st.metric("Input Lists", data.get("input_lists", "—"))
+    with c3:
+        st.metric("Fused Results", data.get("result_count", 0))
+
+    st.markdown(f"**Top-K:** `{data.get('top_k', '—')}`")
+
+    chunks = data.get("chunks", [])
+    if chunks:
+        _render_chunk_list(chunks, prefix="fusion_chunk")
+    else:
+        st.info("No fusion results.")
+
+
+def _render_rerank_stage(data: Dict[str, Any]) -> None:
+    """Render Rerank stage: method, input/output counts, reranked chunk list."""
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Method", data.get("method", "—"))
+    with c2:
+        st.metric("Provider", data.get("provider", "—"))
+    with c3:
+        st.metric("Input", data.get("input_count", "—"))
+    with c4:
+        st.metric("Output", data.get("output_count", "—"))
+
+    chunks = data.get("chunks", [])
+    if chunks:
+        _render_chunk_list(chunks, prefix="rerank_chunk")
+    else:
+        st.info("No reranked results.")
+
+
+def _render_chunk_list(chunks: List[Dict[str, Any]], prefix: str = "chunk") -> None:
+    """Render a list of chunk dicts as a compact, readable table with expandable text."""
+    for ci, chunk in enumerate(chunks):
+        score = chunk.get("score", 0)
+        text = chunk.get("text", "")
+        chunk_id = chunk.get("chunk_id", "")
+        source = chunk.get("source", "")
+        title = chunk.get("title", "")
+
+        # Colour-coded score indicator
+        if score >= 0.8:
+            score_bar = "🟢"
+        elif score >= 0.5:
+            score_bar = "🟡"
+        else:
+            score_bar = "🔴"
+
+        header = f"{score_bar} **#{ci + 1}** — Score: `{score:.4f}`"
+        if title:
+            header += f" — {title}"
+
+        with st.expander(header, expanded=False):
+            cols = st.columns([2, 3])
+            with cols[0]:
+                st.caption(f"Chunk ID: `{chunk_id}`")
+            with cols[1]:
+                if source:
+                    st.caption(f"Source: `{source}`")
+            # Show chunk text (scrollable)
+            if text:
+                st.text_area(
+                    f"{prefix}_{ci}",
+                    value=text,
+                    height=max(80, min(len(text) // 2, 400)),
+                    disabled=True,
+                    label_visibility="collapsed",
+                )
+            else:
+                st.caption("_No text available_")
 
 
 def _find_stage(timings, name):

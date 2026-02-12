@@ -27,7 +27,7 @@ def _run_ingestion(
     from src.core.trace import TraceContext, TraceCollector
     from src.ingestion.pipeline import IngestionPipeline
 
-    settings = load_settings("config/settings.yaml")
+    settings = load_settings()
 
     # Write uploaded file to a temp location
     suffix = Path(uploaded_file.name).suffix
@@ -35,9 +35,20 @@ def _run_ingestion(
         tmp.write(uploaded_file.getbuffer())
         tmp_path = tmp.name
 
+    _STAGE_LABELS = {
+        "integrity": "🔍 Checking file integrity…",
+        "load": "📄 Loading document…",
+        "split": "✂️ Chunking document…",
+        "transform": "🔄 Transforming chunks (LLM refine + enrich)…",
+        "embed": "🔢 Encoding vectors…",
+        "upsert": "💾 Storing to database…",
+    }
+
     def on_progress(stage: str, current: int, total: int) -> None:
-        progress_bar.progress(current / total, text=f"Stage {current}/{total}: {stage}")
-        status_text.caption(f"Processing: {stage} …")
+        frac = (current - 1) / total  # stage just started, show partial progress
+        label = _STAGE_LABELS.get(stage, stage)
+        progress_bar.progress(frac, text=f"[{current}/{total}] {label}")
+        status_text.caption(label)
 
     trace = TraceContext(trace_type="ingestion")
     trace.metadata["source_path"] = uploaded_file.name
@@ -115,24 +126,10 @@ def render() -> None:
         with col_btn:
             if st.button("🗑️ Delete", key=f"del_{idx}"):
                 try:
-                    from src.ingestion.document_manager import DocumentManager
-                    from src.ingestion.storage.bm25_indexer import BM25Indexer
-                    from src.ingestion.storage.image_storage import ImageStorage
-                    from src.libs.loader.file_integrity import SQLiteIntegrityChecker
-                    from src.libs.vector_store.vector_store_factory import VectorStoreFactory
-                    from src.core.settings import load_settings
-
-                    settings = load_settings("config/settings.yaml")
-                    chroma = VectorStoreFactory.create(settings)
-                    bm25 = BM25Indexer(index_dir=str(Path(settings.get("data_dir", "data/db/bm25"))))
-                    images = ImageStorage()
-                    integrity = SQLiteIntegrityChecker(
-                        db_path=str(Path(settings.get("data_dir", "data/db")) / "file_integrity.db")
-                    )
-                    manager = DocumentManager(chroma, bm25, images, integrity)
-                    result = manager.delete_document(
-                        doc["source_path"],
-                        doc.get("collection", "default"),
+                    result = svc.delete_document(
+                        source_path=doc["source_path"],
+                        collection=doc.get("collection", "default"),
+                        source_hash=doc.get("source_hash"),
                     )
                     if result.success:
                         st.success(
