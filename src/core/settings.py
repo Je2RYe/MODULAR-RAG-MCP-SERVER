@@ -4,9 +4,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
+
+# ---------------------------------------------------------------------------
+# Repo root & path resolution
+# ---------------------------------------------------------------------------
+# Anchored to this file's location: <repo>/src/core/settings.py → parents[2]
+REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+
+# Default absolute path to settings.yaml
+DEFAULT_SETTINGS_PATH: Path = REPO_ROOT / "config" / "settings.yaml"
+
+
+def resolve_path(relative: Union[str, Path]) -> Path:
+    """Resolve a repo-relative path to an absolute path.
+
+    If *relative* is already absolute it is returned as-is.  Otherwise
+    it is resolved against :data:`REPO_ROOT`.
+
+    >>> resolve_path("config/settings.yaml")  # doctest: +SKIP
+    PosixPath('/home/user/Modular-RAG-MCP-Server/config/settings.yaml')
+    """
+    p = Path(relative)
+    if p.is_absolute():
+        return p
+    return (REPO_ROOT / p).resolve()
 
 
 class SettingsError(ValueError):
@@ -281,10 +305,16 @@ def validate_settings(settings: Settings) -> None:
         raise SettingsError("Missing required field: observability.log_level")
 
 
-def load_settings(path: str | Path) -> Settings:
-    """Load settings from a YAML file and validate required fields."""
+def load_settings(path: str | Path | None = None) -> Settings:
+    """Load settings from a YAML file and validate required fields.
 
-    settings_path = Path(path)
+    Args:
+        path: Path to settings YAML.  Defaults to
+            ``<repo>/config/settings.yaml`` (absolute, CWD-independent).
+    """
+    settings_path = Path(path) if path is not None else DEFAULT_SETTINGS_PATH
+    if not settings_path.is_absolute():
+        settings_path = resolve_path(settings_path)
     if not settings_path.exists():
         raise SettingsError(f"Settings file not found: {settings_path}")
 

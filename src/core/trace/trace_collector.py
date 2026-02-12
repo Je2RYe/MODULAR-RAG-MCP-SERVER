@@ -11,9 +11,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from src.core.settings import resolve_path
 from src.core.trace.trace_context import TraceContext
 
 logger = logging.getLogger(__name__)
+
+# Default absolute path for traces file (CWD-independent)
+_DEFAULT_TRACES_PATH = resolve_path("logs/traces.jsonl")
 
 
 class TraceCollector:
@@ -24,7 +28,7 @@ class TraceCollector:
             Parent directories are created automatically.
     """
 
-    def __init__(self, traces_path: str | Path = "logs/traces.jsonl") -> None:
+    def __init__(self, traces_path: str | Path = _DEFAULT_TRACES_PATH) -> None:
         self._path = Path(traces_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 

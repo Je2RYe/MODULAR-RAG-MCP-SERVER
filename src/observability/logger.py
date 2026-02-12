@@ -17,8 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Default path for traces file
-_DEFAULT_TRACES_PATH = Path("logs/traces.jsonl")
+from src.core.settings import resolve_path
+
+# Default path for traces file (absolute, CWD-independent)
+_DEFAULT_TRACES_PATH = resolve_path("logs/traces.jsonl")
 
 
 # ── Human-readable logger (existing) ────────────────────────────────
