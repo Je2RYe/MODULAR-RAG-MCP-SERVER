@@ -187,7 +187,10 @@ class DocumentManager:
     # ------------------------------------------------------------------
 
     def delete_document(
-        self, source_path: str, collection: str = "default"
+        self,
+        source_path: str,
+        collection: str = "default",
+        source_hash: Optional[str] = None,
     ) -> DeleteResult:
         """Delete a document from all storage backends.
 
@@ -196,30 +199,32 @@ class DocumentManager:
         ``DeleteResult.errors`` but do not prevent remaining stores
         from being cleaned.
 
-        The document is identified by computing its *source_hash* via
-        the integrity checker, then using that hash as the matching key
-        across stores.
+        The document is identified by its *source_hash*.  When the hash
+        is not supplied the method tries to compute it from the file;
+        if the file no longer exists it falls back to looking up the
+        hash from the integrity records by path.
 
         Args:
             source_path: Original filesystem path of the document.
             collection: Collection the document belongs to.
+            source_hash: Pre-computed SHA-256 hash.  When provided the
+                method will not attempt to read the source file.
 
         Returns:
             ``DeleteResult`` summarising what was cleaned.
         """
         result = DeleteResult(success=True)
 
-        # Compute hash to identify the document across stores
-        try:
-            source_hash = self.integrity.compute_sha256(source_path)
-        except Exception as e:
-            # If the file no longer exists we cannot derive the hash;
-            # fall back to searching integrity records by path.
-            source_hash = self._hash_from_path(source_path)
-            if source_hash is None:
-                result.success = False
-                result.errors.append(f"Cannot identify document: {e}")
-                return result
+        # Resolve hash – prefer caller-supplied, then file, then DB lookup
+        if source_hash is None:
+            try:
+                source_hash = self.integrity.compute_sha256(source_path)
+            except Exception as e:
+                source_hash = self._hash_from_path(source_path)
+                if source_hash is None:
+                    result.success = False
+                    result.errors.append(f"Cannot identify document: {e}")
+                    return result
 
         # 1. ChromaDB – delete chunks matching source_hash
         try:

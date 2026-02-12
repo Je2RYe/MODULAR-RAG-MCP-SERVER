@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Dict, Any
 import time
 
-from src.core.settings import Settings, load_settings
+from src.core.settings import Settings, load_settings, resolve_path
 from src.core.types import Document, Chunk
 from src.core.trace.trace_context import TraceContext
 from src.observability.logger import get_logger
@@ -138,13 +138,13 @@ class IngestionPipeline:
         logger.info("Initializing Ingestion Pipeline components...")
         
         # Stage 1: File Integrity
-        self.integrity_checker = SQLiteIntegrityChecker(db_path="data/db/ingestion_history.db")
+        self.integrity_checker = SQLiteIntegrityChecker(db_path=str(resolve_path("data/db/ingestion_history.db")))
         logger.info("  ✓ FileIntegrityChecker initialized")
         
         # Stage 2: Loader
         self.loader = PdfLoader(
             extract_images=True,
-            image_storage_dir=f"data/images/{collection}"
+            image_storage_dir=str(resolve_path(f"data/images/{collection}"))
         )
         logger.info("  ✓ PdfLoader initialized")
         
@@ -183,12 +183,12 @@ class IngestionPipeline:
         self.vector_upserter = VectorUpserter(settings, collection_name=collection)
         logger.info(f"  ✓ VectorUpserter initialized (provider={settings.vector_store.provider}, collection={collection})")
         
-        self.bm25_indexer = BM25Indexer(index_dir=f"data/db/bm25/{collection}")
+        self.bm25_indexer = BM25Indexer(index_dir=str(resolve_path(f"data/db/bm25/{collection}")))
         logger.info("  ✓ BM25Indexer initialized")
         
         self.image_storage = ImageStorage(
-            db_path="data/db/image_index.db",
-            images_root="data/images"
+            db_path=str(resolve_path("data/db/image_index.db")),
+            images_root=str(resolve_path("data/images"))
         )
         logger.info("  ✓ ImageStorage initialized")
         
@@ -231,6 +231,7 @@ class IngestionPipeline:
             # Stage 1: File Integrity Check
             # ─────────────────────────────────────────────────────────────
             logger.info("\n📋 Stage 1: File Integrity Check")
+            _notify("integrity", 1)
             
             file_hash = self.integrity_checker.compute_sha256(str(file_path))
             logger.info(f"  File hash: {file_hash[:16]}...")
@@ -246,12 +247,12 @@ class IngestionPipeline:
             
             stages["integrity"] = {"file_hash": file_hash, "skipped": False}
             logger.info("  ✓ File needs processing")
-            _notify("integrity", 1)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 2: Document Loading
             # ─────────────────────────────────────────────────────────────
             logger.info("\n📄 Stage 2: Document Loading")
+            _notify("load", 2)
             
             _t0 = time.monotonic()
             document = self.loader.load(str(file_path))
@@ -276,13 +277,14 @@ class IngestionPipeline:
                     "doc_id": document.id,
                     "text_length": len(document.text),
                     "image_count": image_count,
+                    "text_preview": document.text,
                 }, elapsed_ms=_elapsed)
-            _notify("load", 2)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 3: Chunking
             # ─────────────────────────────────────────────────────────────
             logger.info("\n✂️  Stage 3: Document Chunking")
+            _notify("split", 3)
             
             _t0 = time.monotonic()
             chunks = self.chunker.split_document(document)
@@ -302,17 +304,28 @@ class IngestionPipeline:
                     "method": "recursive",
                     "chunk_count": len(chunks),
                     "avg_chunk_size": sum(len(c.text) for c in chunks) // len(chunks) if chunks else 0,
+                    "chunks": [
+                        {
+                            "chunk_id": c.id,
+                            "text": c.text,
+                            "char_len": len(c.text),
+                            "chunk_index": c.metadata.get("chunk_index", i),
+                        }
+                        for i, c in enumerate(chunks)
+                    ],
                 }, elapsed_ms=_elapsed)
-            _notify("split", 3)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 4: Transform Pipeline
             # ─────────────────────────────────────────────────────────────
             logger.info("\n🔄 Stage 4: Transform Pipeline")
+            _notify("transform", 4)
             
             # 4a: Chunk Refinement
             logger.info("  4a. Chunk Refinement...")
             _t0_transform = time.monotonic()
+            # snapshot before refinement
+            _pre_refine_texts = {c.id: c.text for c in chunks}
             chunks = self.chunk_refiner.transform(chunks, trace)
             refined_by_llm = sum(1 for c in chunks if c.metadata.get("refined_by") == "llm")
             refined_by_rule = sum(1 for c in chunks if c.metadata.get("refined_by") == "rule")
@@ -345,13 +358,27 @@ class IngestionPipeline:
                     "enriched_by_llm": enriched_by_llm,
                     "enriched_by_rule": enriched_by_rule,
                     "captioned_chunks": captioned,
+                    "chunks": [
+                        {
+                            "chunk_id": c.id,
+                            "text_before": _pre_refine_texts.get(c.id, ""),
+                            "text_after": c.text,
+                            "char_len": len(c.text),
+                            "refined_by": c.metadata.get("refined_by", ""),
+                            "enriched_by": c.metadata.get("enriched_by", ""),
+                            "title": c.metadata.get("title", ""),
+                            "tags": c.metadata.get("tags", []),
+                            "summary": c.metadata.get("summary", ""),
+                        }
+                        for c in chunks
+                    ],
                 }, elapsed_ms=_elapsed_transform)
-            _notify("transform", 4)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 5: Encoding
             # ─────────────────────────────────────────────────────────────
             logger.info("\n🔢 Stage 5: Encoding")
+            _notify("embed", 5)
             
             # Process through BatchProcessor
             _t0 = time.monotonic()
@@ -370,18 +397,40 @@ class IngestionPipeline:
                 "sparse_doc_count": len(sparse_stats)
             }
             if trace is not None:
+                # Build per-chunk encoding details (both dense & sparse)
+                chunk_details = []
+                for idx, c in enumerate(chunks):
+                    detail: dict = {
+                        "chunk_id": c.id,
+                        "char_len": len(c.text),
+                    }
+                    # Dense: vector dimension (same for all, but confirm per-chunk)
+                    if idx < len(dense_vectors):
+                        detail["dense_dim"] = len(dense_vectors[idx])
+                    # Sparse: BM25 term stats
+                    if idx < len(sparse_stats):
+                        ss = sparse_stats[idx]
+                        detail["doc_length"] = ss.get("doc_length", 0)
+                        detail["unique_terms"] = ss.get("unique_terms", 0)
+                        # Top-10 terms by frequency for inspection
+                        tf = ss.get("term_frequencies", {})
+                        top_terms = sorted(tf.items(), key=lambda x: x[1], reverse=True)[:10]
+                        detail["top_terms"] = [{"term": t, "freq": f} for t, f in top_terms]
+                    chunk_details.append(detail)
+
                 trace.record_stage("embed", {
                     "method": "batch_processor",
                     "dense_vector_count": len(dense_vectors),
                     "dense_dimension": len(dense_vectors[0]) if dense_vectors else 0,
                     "sparse_doc_count": len(sparse_stats),
+                    "chunks": chunk_details,
                 }, elapsed_ms=_elapsed)
-            _notify("embed", 5)
             
             # ─────────────────────────────────────────────────────────────
             # Stage 6: Storage
             # ─────────────────────────────────────────────────────────────
             logger.info("\n💾 Stage 6: Storage")
+            _notify("upsert", 6)
             
             # 6a: Vector Upsert
             logger.info("  6a. Vector Storage (ChromaDB)...")
@@ -417,13 +466,46 @@ class IngestionPipeline:
             }
             _elapsed_storage = (time.monotonic() - _t0_storage) * 1000.0
             if trace is not None:
+                # Per-chunk storage mapping: chunk_id → vector_id
+                chunk_storage = [
+                    {
+                        "chunk_id": c.id,
+                        "vector_id": vector_ids[i] if i < len(vector_ids) else "—",
+                        "collection": self.collection,
+                        "store": "ChromaDB",
+                    }
+                    for i, c in enumerate(chunks)
+                ]
+                # Image storage details
+                image_storage_details = [
+                    {
+                        "image_id": img["id"],
+                        "file_path": str(img["path"]),
+                        "page": img.get("page", 0),
+                        "doc_hash": file_hash,
+                    }
+                    for img in images
+                ]
                 trace.record_stage("upsert", {
-                    "method": "chroma",
-                    "vector_count": len(vector_ids),
-                    "bm25_docs": len(sparse_stats),
-                    "images_indexed": len(images),
+                    "dense_store": {
+                        "backend": "ChromaDB",
+                        "collection": self.collection,
+                        "count": len(vector_ids),
+                        "path": "data/db/chroma/",
+                    },
+                    "sparse_store": {
+                        "backend": "BM25",
+                        "collection": self.collection,
+                        "count": len(sparse_stats),
+                        "path": f"data/db/bm25/{self.collection}/",
+                    },
+                    "image_store": {
+                        "backend": "ImageStorage (JSON index)",
+                        "count": len(images),
+                        "images": image_storage_details,
+                    },
+                    "chunk_mapping": chunk_storage,
                 }, elapsed_ms=_elapsed_storage)
-            _notify("upsert", 6)
             
             # ─────────────────────────────────────────────────────────────
             # Mark Success
@@ -466,7 +548,7 @@ class IngestionPipeline:
 
 def run_pipeline(
     file_path: str,
-    settings_path: str = "config/settings.yaml",
+    settings_path: Optional[str] = None,
     collection: str = "default",
     force: bool = False
 ) -> PipelineResult:
@@ -474,7 +556,7 @@ def run_pipeline(
     
     Args:
         file_path: Path to file to process
-        settings_path: Path to settings.yaml
+        settings_path: Path to settings.yaml (default: <repo>/config/settings.yaml)
         collection: Collection name
         force: Force reprocessing
     

@@ -70,7 +70,8 @@ class ImageCaptioner(BaseTransform):
     def _load_prompt(self) -> str:
         """Load the image captioning prompt from configuration."""
         # Assuming standard relative path. In production, logic might be robust.
-        prompt_path = Path("config/prompts/image_captioning.txt")
+        from src.core.settings import resolve_path
+        prompt_path = resolve_path("config/prompts/image_captioning.txt")
         if prompt_path.exists():
             return prompt_path.read_text(encoding="utf-8").strip()
         return "Describe this image in detail for indexing purposes."

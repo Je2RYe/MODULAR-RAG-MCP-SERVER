@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.core.settings import resolve_path
 from src.libs.llm.base_llm import BaseLLM, Message
 from src.libs.llm.llm_factory import LLMFactory
 from src.libs.reranker.base_reranker import BaseReranker
@@ -53,7 +54,7 @@ class LLMReranker(BaseReranker):
             **kwargs: Additional provider-specific parameters.
         """
         self.settings = settings
-        self.prompt_path = prompt_path or "config/prompts/rerank.txt"
+        self.prompt_path = prompt_path or str(resolve_path("config/prompts/rerank.txt"))
         self.llm = llm or LLMFactory.create(settings)
         self.kwargs = kwargs
         

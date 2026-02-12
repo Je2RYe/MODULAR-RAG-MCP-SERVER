@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from src.core.settings import Settings
+from src.core.settings import Settings, resolve_path
 from src.core.types import Chunk
 from src.core.trace.trace_context import TraceContext
 from src.ingestion.transform.base_transform import BaseTransform
@@ -53,7 +53,7 @@ class ChunkRefiner(BaseTransform):
         self.settings = settings
         self._llm = llm
         self._prompt_template: Optional[str] = None
-        self._prompt_path = prompt_path or "config/prompts/chunk_refinement.txt"
+        self._prompt_path = prompt_path or str(resolve_path("config/prompts/chunk_refinement.txt"))
         
         # Determine if LLM should be used
         self.use_llm = getattr(
