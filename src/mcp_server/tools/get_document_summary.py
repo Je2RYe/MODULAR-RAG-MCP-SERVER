@@ -155,7 +155,7 @@ class GetDocumentSummaryTool:
         """Get settings, loading if necessary."""
         if self._settings is None:
             from src.core.settings import load_settings
-            self._settings = load_settings("config/settings.yaml")
+            self._settings = load_settings()
         return self._settings
     
     @property
