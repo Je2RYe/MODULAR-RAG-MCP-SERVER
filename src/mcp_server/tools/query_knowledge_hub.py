@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from mcp import types
 
 from src.core.response.response_builder import ResponseBuilder, MCPToolResponse
-from src.core.settings import load_settings, Settings
+from src.core.settings import load_settings, resolve_path, Settings
 from src.core.trace import TraceContext, TraceCollector
 from src.core.types import RetrievalResult
 
@@ -123,6 +123,7 @@ class QueryKnowledgeHubTool:
         self.config = config or QueryKnowledgeHubConfig()
         self._hybrid_search = hybrid_search
         self._reranker = reranker
+        self._embedding_client = None
         self._response_builder = response_builder or ResponseBuilder()
         
         # Track initialization state
@@ -133,17 +134,33 @@ class QueryKnowledgeHubTool:
     def settings(self) -> Settings:
         """Get settings, loading if necessary."""
         if self._settings is None:
-            self._settings = load_settings("config/settings.yaml")
+            self._settings = load_settings()
         return self._settings
     
     def _ensure_initialized(self, collection: str) -> None:
         """Ensure search components are initialized for the given collection.
         
+        Caching strategy (balances speed vs freshness):
+        - **Fully cached** (stateless, never go stale): embedding client,
+          reranker, query processor, settings.
+        - **Cached until collection changes**: vector store (ChromaDB
+          PersistentClient reads from SQLite — sees data written by other
+          processes), dense retriever, hybrid search.
+        - **Auto-refreshes on every query**: BM25 sparse index — the
+          ``SparseRetriever._ensure_index_loaded()`` always reloads from
+          disk, so the cached SparseRetriever object is fine.
+        
+        Only when *collection* changes do we tear down and rebuild.
+        
         Args:
             collection: Target collection name.
         """
-        # Reinitialize if collection changed
+        # Fast path: already initialised for the same collection
         if self._initialized and self._current_collection == collection:
+            logger.debug(
+                "Query components already initialised for collection: %s",
+                collection,
+            )
             return
         
         logger.info(f"Initializing query components for collection: {collection}")
@@ -158,20 +175,32 @@ class QueryKnowledgeHubTool:
         from src.libs.embedding.embedding_factory import EmbeddingFactory
         from src.libs.vector_store.vector_store_factory import VectorStoreFactory
         
-        # Create components
+        # === Fully cached components (stateless, never go stale) ===
+        if self._embedding_client is None:
+            self._embedding_client = EmbeddingFactory.create(self.settings)
+        
+        if self._reranker is None:
+            self._reranker = create_core_reranker(settings=self.settings)
+        
+        # === Rebuild for new collection ===
+        # ChromaDB PersistentClient uses SQLite under the hood —
+        # concurrent readers see committed writes from other processes
+        # (dashboard ingestion), so caching the client is safe.
         vector_store = VectorStoreFactory.create(
             self.settings,
             collection_name=collection,
         )
         
-        embedding_client = EmbeddingFactory.create(self.settings)
         dense_retriever = create_dense_retriever(
             settings=self.settings,
-            embedding_client=embedding_client,
+            embedding_client=self._embedding_client,
             vector_store=vector_store,
         )
         
-        bm25_indexer = BM25Indexer(index_dir=f"data/db/bm25/{collection}")
+        # BM25Indexer just holds the index dir path; the SparseRetriever
+        # calls _ensure_index_loaded() on every search, which always
+        # reloads from disk — so it picks up dashboard-written data.
+        bm25_indexer = BM25Indexer(index_dir=str(resolve_path(f"data/db/bm25/{collection}")))
         sparse_retriever = create_sparse_retriever(
             settings=self.settings,
             bm25_indexer=bm25_indexer,
@@ -186,8 +215,6 @@ class QueryKnowledgeHubTool:
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
         )
-        
-        self._reranker = create_core_reranker(settings=self.settings)
         
         self._current_collection = collection
         self._initialized = True
@@ -238,7 +265,14 @@ class QueryKnowledgeHubTool:
             # Initialize components for collection
             # Run blocking I/O (embedding API, ChromaDB, BM25) in a thread
             # to avoid blocking the async event loop / MCP stdio transport
+            import time as _time
+            _init_t0 = _time.monotonic()
             await asyncio.to_thread(self._ensure_initialized, effective_collection)
+            _init_elapsed = (_time.monotonic() - _init_t0) * 1000.0
+            trace.record_stage("initialization", {
+                "collection": effective_collection,
+                "cold_start": _init_elapsed > 500,  # >500ms ≈ cold
+            }, elapsed_ms=_init_elapsed)
             
             # Perform hybrid search (blocking: embedding API + DB queries)
             results = await asyncio.to_thread(
@@ -258,6 +292,18 @@ class QueryKnowledgeHubTool:
                 collection=effective_collection,
             )
             
+            # Store final results in trace for dashboard display
+            trace.metadata["final_results"] = [
+                {
+                    "chunk_id": r.chunk_id,
+                    "score": round(r.score, 4),
+                    "text": r.text or "",
+                    "source": r.metadata.get("source_path", r.metadata.get("source", "")),
+                    "title": r.metadata.get("title", ""),
+                }
+                for r in results
+            ]
+
             logger.info(
                 f"query_knowledge_hub completed: {len(results)} results, "
                 f"is_empty={response.is_empty}"

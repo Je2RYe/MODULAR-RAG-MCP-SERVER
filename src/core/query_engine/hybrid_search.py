@@ -33,6 +33,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _snapshot_results(
+    results: Optional[List[RetrievalResult]],
+) -> List[Dict[str, Any]]:
+    """Create a serialisable snapshot of retrieval results for trace storage.
+
+    Args:
+        results: List of RetrievalResult objects.
+
+    Returns:
+        List of dicts with chunk_id, score, full text, source.
+    """
+    if not results:
+        return []
+    return [
+        {
+            "chunk_id": r.chunk_id,
+            "score": round(r.score, 4),
+            "text": r.text or "",
+            "source": r.metadata.get("source_path", r.metadata.get("source", "")),
+        }
+        for r in results
+    ]
+
+
 @dataclass
 class HybridSearchConfig:
     """Configuration for HybridSearch.
@@ -493,11 +517,18 @@ class HybridSearch:
                     "provider": getattr(self.dense_retriever, 'provider_name', 'unknown'),
                     "top_k": self.config.dense_top_k,
                     "result_count": len(results) if results else 0,
+                    "chunks": _snapshot_results(results),
                 }, elapsed_ms=_elapsed)
             return results, None
         except Exception as e:
             error_msg = f"Dense retrieval error: {e}"
             logger.error(error_msg)
+            if trace is not None:
+                trace.record_stage("dense_retrieval", {
+                    "method": "dense",
+                    "error": error_msg,
+                    "result_count": 0,
+                })
             return None, error_msg
     
     def _run_sparse_retrieval(
@@ -540,6 +571,7 @@ class HybridSearch:
                     "keyword_count": len(keywords),
                     "top_k": self.config.sparse_top_k,
                     "result_count": len(results) if results else 0,
+                    "chunks": _snapshot_results(results),
                 }, elapsed_ms=_elapsed)
             return results, None
         except Exception as e:
@@ -597,6 +629,7 @@ class HybridSearch:
                 "input_lists": len(ranking_lists),
                 "top_k": top_k,
                 "result_count": len(fused),
+                "chunks": _snapshot_results(fused),
             }, elapsed_ms=_elapsed)
         return fused
     

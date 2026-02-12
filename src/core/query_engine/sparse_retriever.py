@@ -222,21 +222,16 @@ class SparseRetriever:
     def _ensure_index_loaded(self, collection: str) -> bool:
         """Ensure the BM25 index is loaded for the given collection.
         
+        Always reloads from disk because the index may have been updated
+        by another process (e.g., dashboard ingestion).  The load is
+        fast (a single JSON file read) compared to the overall query.
+        
         Args:
             collection: The collection name to load.
         
         Returns:
             True if index is loaded and ready, False otherwise.
         """
-        # Check if index is already loaded by examining internal state
-        indexer_metadata = getattr(self.bm25_indexer, '_metadata', {})
-        loaded_collection = indexer_metadata.get('collection', None)
-        
-        if loaded_collection == collection:
-            # Already loaded
-            return True
-        
-        # Try to load the index
         try:
             loaded = self.bm25_indexer.load(collection=collection)
             return loaded

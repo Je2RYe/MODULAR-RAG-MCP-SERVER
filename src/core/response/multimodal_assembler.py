@@ -242,8 +242,9 @@ class MultimodalAssembler:
         
         # Convention-based path: data/images/{collection}/{image_id}.png
         if collection:
+            from src.core.settings import resolve_path
             for ext in [".png", ".jpg", ".jpeg", ".webp"]:
-                candidate = Path(f"data/images/{collection}/{ref.image_id}{ext}")
+                candidate = resolve_path(f"data/images/{collection}/{ref.image_id}{ext}")
                 if candidate.exists():
                     return str(candidate.resolve())
         

@@ -307,6 +307,15 @@ class CoreReranker:
                     "provider": self._reranker_type,
                     "input_count": len(candidates),
                     "output_count": len(final_results),
+                    "chunks": [
+                        {
+                            "chunk_id": r.chunk_id,
+                            "score": round(r.score, 4),
+                            "text": r.text or "",
+                            "source": r.metadata.get("source_path", r.metadata.get("source", "")),
+                        }
+                        for r in final_results
+                    ],
                 }, elapsed_ms=_elapsed)
             
             return RerankResult(

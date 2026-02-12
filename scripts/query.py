@@ -25,6 +25,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Ensure project root is on sys.path
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _SCRIPT_DIR.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
 # Set UTF-8 encoding for Windows console
 if sys.platform == "win32":
     import io
@@ -79,7 +84,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--config",
-        default="config/settings.yaml",
+        default=str(_REPO_ROOT / "config" / "settings.yaml"),
         help="Path to configuration file (default: config/settings.yaml)"
     )
 
