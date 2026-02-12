@@ -83,7 +83,7 @@ def main() -> int:
         from src.libs.evaluator.evaluator_factory import EvaluatorFactory
         from src.observability.evaluation.eval_runner import EvalRunner
 
-        settings = load_settings("config/settings.yaml")
+        settings = load_settings()
     except Exception as exc:
         print(f"❌ Configuration error: {exc}", file=sys.stderr)
         return 2

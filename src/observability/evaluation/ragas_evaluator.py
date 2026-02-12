@@ -153,133 +153,102 @@ class RagasEvaluator(BaseEvaluator):
         contexts: List[str],
         answer: str,
     ) -> Dict[str, float]:
-        """Execute ragas evaluate() and return normalised metrics dict."""
-        from ragas import evaluate as ragas_evaluate
-        from ragas import EvaluationDataset, SingleTurnSample
+        """Execute Ragas collections metrics and return normalised scores.
+
+        Ragas 0.4+ collections metrics use per-metric ``score()`` instead of
+        the legacy ``evaluate()`` pipeline.  Each metric has its own signature:
+        - Faithfulness / ContextPrecision: (user_input, response, retrieved_contexts)
+        - AnswerRelevancy: (user_input, response)
+        """
         from ragas.metrics.collections import (
             Faithfulness,
             AnswerRelevancy,
             ContextPrecisionWithoutReference,
         )
 
-        # Build metric instances
-        metric_map = {
-            FAITHFULNESS: Faithfulness(),
-            ANSWER_RELEVANCY: AnswerRelevancy(),
-            CONTEXT_PRECISION: ContextPrecisionWithoutReference(),
-        }
-        selected_metrics = [metric_map[m] for m in self._metric_names]
-
-        # Build single-turn sample
-        sample = SingleTurnSample(
-            user_input=query,
-            retrieved_contexts=contexts,
-            response=answer,
-        )
-        dataset = EvaluationDataset(samples=[sample])
-
         # Build LLM / Embedding wrappers from settings
-        llm_wrapper, embeddings_wrapper = self._build_wrappers()
+        llm, embeddings = self._build_wrappers()
 
-        ragas_result = ragas_evaluate(
-            dataset=dataset,
-            metrics=selected_metrics,
-            llm=llm_wrapper,
-            embeddings=embeddings_wrapper,
-        )
-
-        # Extract scores from the result DataFrame
         scores: Dict[str, float] = {}
-        df = ragas_result.to_pandas()
+
         for metric_name in self._metric_names:
-            col = metric_name
-            if col in df.columns:
-                val = df[col].iloc[0]
-                scores[metric_name] = float(val) if val is not None else 0.0
+            if metric_name == FAITHFULNESS:
+                m = Faithfulness(llm=llm)
+                result = m.score(
+                    user_input=query, response=answer, retrieved_contexts=contexts,
+                )
+            elif metric_name == ANSWER_RELEVANCY:
+                m = AnswerRelevancy(llm=llm, embeddings=embeddings)
+                result = m.score(user_input=query, response=answer)
+            elif metric_name == CONTEXT_PRECISION:
+                m = ContextPrecisionWithoutReference(llm=llm)
+                result = m.score(
+                    user_input=query, response=answer, retrieved_contexts=contexts,
+                )
             else:
-                scores[metric_name] = 0.0
+                continue
+
+            scores[metric_name] = float(result.value) if result.value is not None else 0.0
 
         return scores
 
     def _build_wrappers(self) -> tuple:
         """Build Ragas LLM and Embedding wrappers from project settings.
 
+        Uses Ragas 0.4+ native API (InstructorLLM + OpenAIEmbeddings)
+        instead of deprecated LangchainLLMWrapper.
+
         Returns:
             Tuple of (llm_wrapper, embeddings_wrapper).
         """
-        from ragas.llms import LangchainLLMWrapper
-        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from openai import AsyncAzureOpenAI, AsyncOpenAI
+        from ragas.llms import llm_factory
+        from ragas.embeddings import OpenAIEmbeddings
 
-        llm = self._create_langchain_llm()
-        embeddings = self._create_langchain_embeddings()
-
-        return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
-
-    def _create_langchain_llm(self) -> Any:
-        """Create a LangChain chat model from settings."""
         if self.settings is None:
             raise ValueError("Settings required to create LLM for Ragas evaluation")
 
+        # ── LLM ──
         llm_cfg = self.settings.llm
         provider = llm_cfg.provider.lower()
 
         if provider == "azure":
-            from langchain_openai import AzureChatOpenAI
-            import os
-
-            return AzureChatOpenAI(
-                azure_deployment=llm_cfg.deployment_name or llm_cfg.model,
-                azure_endpoint=llm_cfg.azure_endpoint or os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-                api_key=llm_cfg.api_key or os.getenv("AZURE_OPENAI_API_KEY", ""),
+            llm_client = AsyncAzureOpenAI(
+                api_key=llm_cfg.api_key,
+                azure_endpoint=llm_cfg.azure_endpoint,
                 api_version=llm_cfg.api_version or "2024-02-15-preview",
-                temperature=0.0,
             )
         elif provider == "openai":
-            from langchain_openai import ChatOpenAI
-            import os
-
-            return ChatOpenAI(
-                model=llm_cfg.model,
-                api_key=llm_cfg.api_key or os.getenv("OPENAI_API_KEY", ""),
-                temperature=0.0,
-            )
+            llm_client = AsyncOpenAI(api_key=llm_cfg.api_key)
         else:
             raise ValueError(
                 f"Unsupported LLM provider for Ragas: '{provider}'. "
                 "Supported: azure, openai"
             )
 
-    def _create_langchain_embeddings(self) -> Any:
-        """Create a LangChain embedding model from settings."""
-        if self.settings is None:
-            raise ValueError("Settings required to create embeddings for Ragas evaluation")
+        llm = llm_factory(llm_cfg.model, client=llm_client, max_tokens=8192)
 
+        # ── Embeddings ──
         emb_cfg = self.settings.embedding
-        provider = emb_cfg.provider.lower()
+        emb_provider = emb_cfg.provider.lower()
 
-        if provider == "azure":
-            from langchain_openai import AzureOpenAIEmbeddings
-            import os
-
-            return AzureOpenAIEmbeddings(
-                azure_deployment=emb_cfg.deployment_name or emb_cfg.model,
-                azure_endpoint=emb_cfg.azure_endpoint or os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-                api_key=emb_cfg.api_key or os.getenv("AZURE_OPENAI_API_KEY", ""),
+        if emb_provider == "azure":
+            emb_client = AsyncAzureOpenAI(
+                api_key=emb_cfg.api_key,
+                azure_endpoint=emb_cfg.azure_endpoint,
                 api_version=emb_cfg.api_version or "2024-02-15-preview",
             )
-        elif provider == "openai":
-            from langchain_openai import OpenAIEmbeddings
-            import os
-
-            return OpenAIEmbeddings(
-                model=emb_cfg.model,
-                api_key=emb_cfg.api_key or os.getenv("OPENAI_API_KEY", ""),
-            )
+        elif emb_provider == "openai":
+            emb_client = AsyncOpenAI(api_key=emb_cfg.api_key)
         else:
             raise ValueError(
-                f"Unsupported embedding provider for Ragas: '{provider}'. "
+                f"Unsupported embedding provider for Ragas: '{emb_provider}'. "
                 "Supported: azure, openai"
             )
+
+        embeddings = OpenAIEmbeddings(model=emb_cfg.model, client=emb_client)
+
+        return llm, embeddings
 
     def _extract_texts(self, chunks: List[Any]) -> List[str]:
         """Extract text strings from various chunk representations.
