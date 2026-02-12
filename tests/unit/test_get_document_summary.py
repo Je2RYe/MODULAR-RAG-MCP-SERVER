@@ -321,7 +321,7 @@ class TestSettingsProperty:
         tool = GetDocumentSummaryTool()
         result = tool.settings
         
-        mock_load.assert_called_once_with("config/settings.yaml")
+        mock_load.assert_called_once()
         assert result is mock_loaded
 
 

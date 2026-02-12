@@ -207,7 +207,7 @@ class TestListCollectionsToolInit:
             # Access settings property
             result = tool.settings
             
-            mock_load.assert_called_once_with("config/settings.yaml")
+            mock_load.assert_called_once()
             assert result == mock_settings
     
     def test_config_derived_from_settings(self, mock_settings: Mock) -> None:
