@@ -61,5 +61,5 @@ def test_create_with_unknown_provider_raises_value_error(monkeypatch: pytest.Mon
     monkeypatch.setattr(LLMFactory, "_registry", {"fake": _FakeLLM})
     settings = _make_settings("unknown")
 
-    with pytest.raises(ValueError, match="Unsupported llm\.provider"):
+    with pytest.raises(ValueError, match=r"Unsupported llm\.provider"):
         LLMFactory.create(settings)
