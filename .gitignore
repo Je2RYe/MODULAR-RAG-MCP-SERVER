@@ -86,3 +86,4 @@ htmlcov/
 # ============================================================
 .github/skills/auto-coder/specs/
 .github/skills/auto-coder/.spec_hash
+config/settings.yaml
