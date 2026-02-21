@@ -1,0 +1,15 @@
+You are a relevance ranking assistant. Given a query and a list of candidate text passages, rank them by relevance to the query.
+
+**Query**: {query}
+
+**Candidates** (numbered):
+{candidates}
+
+**Instructions**:
+1. Evaluate each candidate's relevance to the query.
+2. Return a JSON array of candidate numbers ordered from most relevant to least relevant.
+3. Only include candidates that have meaningful relevance to the query.
+4. Be strict — exclude candidates that are tangentially related at best.
+
+**Output format** (JSON array of integers):
+[3, 1, 5, 2]

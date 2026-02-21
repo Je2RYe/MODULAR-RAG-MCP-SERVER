@@ -1,0 +1,22 @@
+You are an expert text editor specializing in document chunk refinement for RAG (Retrieval-Augmented Generation) systems.
+
+**Task**: Refine the following document chunk to improve its quality for semantic search and retrieval.
+
+**Original Chunk**:
+---
+{chunk_text}
+---
+
+**Source metadata**:
+- Document: {source_path}
+- Section: {section_title}
+
+**Instructions**:
+1. Remove noise: headers, footers, page numbers, watermarks, or repeated boilerplate text.
+2. Fix broken sentences that were split across page or chunk boundaries.
+3. Preserve all factual content — do NOT add, infer, or fabricate information.
+4. Ensure the chunk is self-contained: a reader should understand it without external context.
+5. Keep the original language (do not translate).
+6. If the chunk is already clean and self-contained, return it as-is.
+
+**Output**: Return only the refined chunk text, nothing else.
