@@ -18,6 +18,7 @@ from src.libs.llm.ollama_llm import OllamaLLM, OllamaLLMError
 
 # Register text-only LLM providers with factory
 LLMFactory.register_provider("openai", OpenAILLM)
+LLMFactory.register_provider("foundry", OpenAILLM)
 LLMFactory.register_provider("azure", AzureLLM)
 LLMFactory.register_provider("deepseek", DeepSeekLLM)
 LLMFactory.register_provider("ollama", OllamaLLM)

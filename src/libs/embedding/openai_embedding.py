@@ -61,8 +61,12 @@ class OpenAIEmbedding(BaseEmbedding):
         # Extract optional dimensions setting
         self.dimensions = getattr(settings.embedding, 'dimensions', None)
         
-        # API key: explicit > env var
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # API key: explicit > settings > env var
+        self.api_key = (
+            api_key
+            or getattr(settings.embedding, 'api_key', None)
+            or os.environ.get("OPENAI_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
                 "OpenAI API key not provided. Set OPENAI_API_KEY environment variable "
@@ -123,7 +127,7 @@ class OpenAIEmbedding(BaseEmbedding):
         
         # Add dimensions if specified (only for text-embedding-3-* models)
         dimensions = kwargs.get("dimensions", self.dimensions)
-        if dimensions is not None:
+        if dimensions is not None and "text-embedding-3" in self.model.lower():
             api_params["dimensions"] = dimensions
         
         # Call OpenAI API

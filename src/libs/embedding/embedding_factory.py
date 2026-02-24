@@ -115,6 +115,7 @@ def _register_builtin_providers() -> None:
     try:
         from src.libs.embedding.openai_embedding import OpenAIEmbedding
         EmbeddingFactory.register_provider("openai", OpenAIEmbedding)
+        EmbeddingFactory.register_provider("foundry", OpenAIEmbedding)
     except ImportError:
         pass  # OpenAI provider not available
     

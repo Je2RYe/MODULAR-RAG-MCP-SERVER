@@ -121,12 +121,14 @@ def render() -> None:
                         if elapsed is not None:
                             st.caption(f"⏱️ {elapsed:.1f} ms")
 
+                        key_prefix = f"{idx}_{trace_id}_{key}"
+
                         if key == "load":
-                            _render_load_stage(data)
+                            _render_load_stage(data, key_prefix)
                         elif key == "split":
-                            _render_split_stage(data)
+                            _render_split_stage(data, key_prefix)
                         elif key == "transform":
-                            _render_transform_stage(data)
+                            _render_transform_stage(data, key_prefix)
                         elif key == "embed":
                             _render_embed_stage(data)
                         elif key == "upsert":
@@ -139,7 +141,7 @@ def render() -> None:
 # Per-stage renderers
 # ═══════════════════════════════════════════════════════════════
 
-def _render_load_stage(data: Dict[str, Any]) -> None:
+def _render_load_stage(data: Dict[str, Any], key_prefix: str = "load") -> None:
     """Render Load stage: raw document preview."""
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -152,18 +154,20 @@ def _render_load_stage(data: Dict[str, Any]) -> None:
     preview = data.get("text_preview", "")
     if preview:
         st.markdown("**Raw Document Text**")
+        doc_id = data.get("doc_id", "unknown")
         st.text_area(
             "raw_text",
             value=preview,
             height=max(120, min(len(preview) // 2, 600)),
             disabled=True,
             label_visibility="collapsed",
+            key=f"{key_prefix}_raw_text_{doc_id}",
         )
     else:
         st.info("No text preview recorded in this trace.")
 
 
-def _render_split_stage(data: Dict[str, Any]) -> None:
+def _render_split_stage(data: Dict[str, Any], key_prefix: str = "split") -> None:
     """Render Split stage: chunk list with texts."""
     c1, c2 = st.columns(2)
     with c1:
@@ -186,12 +190,13 @@ def _render_split_stage(data: Dict[str, Any]) -> None:
                     height=max(100, min(len(text) // 2, 500)),
                     disabled=True,
                     label_visibility="collapsed",
+                    key=f"{key_prefix}_split_{i}",
                 )
     else:
         st.info("No chunk text recorded. Re-run ingestion to generate new traces.")
 
 
-def _render_transform_stage(data: Dict[str, Any]) -> None:
+def _render_transform_stage(data: Dict[str, Any], key_prefix: str = "transform") -> None:
     """Render Transform stage: before/after refinement + enrichment metadata."""
     # Summary metrics
     c1, c2, c3 = st.columns(3)
@@ -260,6 +265,7 @@ def _render_transform_stage(data: Dict[str, Any]) -> None:
                             height=_h,
                             disabled=True,
                             label_visibility="collapsed",
+                            key=f"{key_prefix}_before_{i}",
                         )
                     with col_after:
                         st.markdown("*After refinement + enrichment:*")
@@ -269,6 +275,7 @@ def _render_transform_stage(data: Dict[str, Any]) -> None:
                             height=_h,
                             disabled=True,
                             label_visibility="collapsed",
+                            key=f"{key_prefix}_after_{i}",
                         )
     else:
         st.info("No per-chunk transform data recorded. Re-run ingestion for new traces.")

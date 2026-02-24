@@ -61,16 +61,24 @@ class OpenAILLM(BaseLLM):
         self.default_temperature = settings.llm.temperature
         self.default_max_tokens = settings.llm.max_tokens
         
-        # API key: explicit > env var
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # API key: explicit > settings > env var
+        self.api_key = (
+            api_key
+            or getattr(settings.llm, 'api_key', None)
+            or os.environ.get("OPENAI_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
                 "OpenAI API key not provided. Set OPENAI_API_KEY environment variable "
                 "or pass api_key parameter."
             )
         
-        # Base URL: explicit > default
-        self.base_url = base_url or self.DEFAULT_BASE_URL
+        # Base URL: explicit > settings > default
+        if base_url:
+            self.base_url = base_url
+        else:
+            settings_base_url = getattr(settings.llm, 'base_url', None)
+            self.base_url = settings_base_url if settings_base_url else self.DEFAULT_BASE_URL
         
         # Store any additional kwargs for future use
         self._extra_config = kwargs
